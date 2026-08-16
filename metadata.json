@@ -1,5 +1,5 @@
 {
-  "game_name": "Platanus Hack: Bogotá Brick Breaker",
-  "description": "Batalla campal por romper la mayor cantidad de ladrillos",
-  "player_mode": "two_player"
+  "game_name": "HOOK",
+  "description": "Ayuda a la guacamaya colombiana a pescar tesoros en el océano profundo: desciende, esquiva medusas, sacude cangrejos y captura criaturas legendarias en partidas de riesgo y recompensa.",
+  "player_mode": "single_player"
 }
