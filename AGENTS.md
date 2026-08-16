@@ -109,3 +109,142 @@ await window.platanusArcadeStorage.remove('my-key');
 5. **Let the user test**: The user will run `npm run dev` when they want to test - focus on building the game
 
 Good luck building an amazing arcade game! <�
+
+## Current Project State: HOOK
+
+The repository is no longer the original brick-breaker starter. The implemented game is **HOOK**, a single-player arcade fishing game starring a stylized Colombian macaw. Treat the current files as the source of truth before making changes.
+
+### Product Direction
+
+- Game name: `HOOK`
+- Player mode: `single_player`
+- Theme: Colombian macaw fishing from a dock in a colorful ocean that becomes an abyss
+- Core fantasy: descend, steer the hook, avoid hazards, catch rare fish, buy upgrades, and beat the depth/score record
+- Text language: Spanish
+- Visual identity: yellow, blue, and red Colombian palette over Caribbean water and deep-ocean navy
+- The macaw is the primary visual identity and must remain recognizable at small scale
+
+### Current Game Loop
+
+The game uses one Phaser scene and these phases:
+
+```text
+menu -> dock -> cast -> sink -> bite -> mg -> caught/fail -> dock
+                         |                         |
+                         +-> line cut/reel --------+
+                         dock -> shop
+                         final cast -> gameover -> initials -> menu
+```
+
+- Each run has 5 launches.
+- `P1_1` launches from the dock and taps/impulses the minigame indicator.
+- During `sink`, the joystick steers the hook horizontally while depth increases automatically.
+- Fish spawn in depth bands and touching one starts the bite sequence.
+- The vertical minigame uses short `P1_1` taps to push the player indicator upward against gravity. Keep it overlapping the moving fish to fill progress; separation fills the escape meter.
+- A successful catch awards the fish value as coins.
+- The shop has three upgrades, each with three levels: `LÍNEA PROFUNDA`, `CEBO DE LUJO`, and `MANOS FRÍAS`.
+- At 150m+, crabs attach to the line. Move left/right to accumulate shake distance and remove them before the timer expires.
+- At 300m+, jellyfish can touch the hook and instantly break the line.
+- Reaching the current maximum depth without a bite reels back with `SIN PICADA`.
+- The two legendary species are deep, valuable, glow, trigger a flash/particle/camera-shake celebration, and increment the persistent legendary record.
+
+### Current Rendering And Animation
+
+- Graphics are procedural. No image assets are loaded by `game.js`.
+- Small textures are generated once with Phaser Graphics, while the macaw and environment use Phaser primitives and containers.
+- The surface has a sky gradient, sun halo, clouds, island silhouettes, dock, Colombian flag, animated waves, and sun reflections.
+- The water uses a depth gradient, dark overlay, light rays, bubbles, and marine snow.
+- The macaw container has head, face patch, beak, eye, crest, body, belly, wings, tail feathers, legs, rod, and hook line.
+- Macaw poses are `IDLE`, `CAST`, `FISHING`, `BITE`, `CATCH`, `FAIL`, `BUY`, and `VICTORY`.
+- Idle animation includes breathing, blinking, tail movement, wing motion, and head tracking toward the hook.
+- The fishing line is drawn as a manually sampled quadratic Bezier approximation. Do not call Canvas-only `quadraticCurveTo` on Phaser Graphics; Phaser Graphics does not provide that method.
+- `cover.png` is a custom 800x600 PNG with the macaw, dock, ocean, hook, fish, Colombian flag, and HOOK branding. It is currently about 65 KB.
+
+### Important Code Locations
+
+- Constants, species table, upgrades, cabinet mapping, and Phaser config are at the top of `game.js`.
+- Input normalization and arcade held/pressed helpers are near the top of `game.js`.
+- Procedural textures: `buildTextures`.
+- Environment: `buildBackground`, `buildWater`, `waterTick`, and `buildDock`.
+- Macaw construction and animation: `buildMacaw`, `macawState`, `macawTick`.
+- Hook and line: `buildLine`, `lineDraw`, `hookTick`.
+- Fishing gameplay: `startCast`, `castUpdate`, `sinkUpdate`, `startBite`, `reelUp`, `lineCut`, and `endCast`.
+- Fish and hazards: `spawnFish`, `updateFishes`, `spawnJelly`, `updateJellies`, and `crabOff`.
+- Catch minigame: `buildMinigameUi`, `mgStart`, `mgUpdate`, `mgHide`, `caughtCatch`, and `failCatch`.
+- Shop: `buildShop`, `shopOpen`, `shopUpdate`, and `shopRefresh`.
+- Menus and score entry: `buildMenu`, `buildGameOver`, `overShow`, `overUpdate`, and `updateEntryLetters`.
+- Audio: `ensureAudio`, `tone`, `sfx`, and `startMusic`.
+- Persistence: `hook-26-scores` and `hook-26-records`, accessed through the arcade storage bridge with localStorage fallback.
+
+### Controls And Testing
+
+The physical cabinet mapping in `CABINET_KEYS` must not be replaced. Local keyboard defaults are:
+
+- `W/A/S/D`: Player 1 joystick
+- `U`: Player 1 Button 1, launch/tap/confirm
+- `I`: Player 1 Button 2, shop/exit
+- `Enter`: `START1`, start/pause/continue
+- Arrow keys and `R/T`: Player 2 equivalents are retained for cabinet compatibility, although this game is single-player
+
+Use arcade codes in gameplay logic, never raw key strings. The current game was tested in a real Chromium-based browser with the flow menu -> dock -> cast -> sink, steering, fish spawning, bite, minigame, legendary catch, shop purchase, gameover, initials entry, and score save. Keep testing in a browser after gameplay changes.
+
+### Validation Results And Commands
+
+Run these from the repository root:
+
+```bash
+node --check game.js
+npm run check-restrictions
+```
+
+The last successful restriction check reported approximately 38 KB minified, under the 50 KB limit, with no imports, network calls, external URLs, or suspicious code patterns.
+
+The development server is normally:
+
+```bash
+npm run dev
+```
+
+It serves `http://localhost:3001/`. Do not start it automatically unless the user explicitly asks. The user may request the server to be run.
+
+### Submit v1 Requirements
+
+The dev UI Submit flow inspects only `game.js`, `metadata.json`, and `cover.png`, then creates a release commit/tag and pushes to `origin`.
+
+Required before Submit v1:
+
+- `origin` must point to the GitHub repository.
+- Work must be on a named branch, currently `main`.
+- `game.js`, `metadata.json`, and `cover.png` must be committed and pushed.
+- `cover.png` must be a changed custom PNG, exactly 800x600, and at most 500 KB.
+- The current custom cover passes these checks.
+- The release API requires network access during submission; this does not violate the game's runtime restriction because it is the dev UI submission process, not game code.
+- Do not press Submit repeatedly; one submission creates a release tag and pushes it.
+
+#### Windows Default-Cover Warning
+
+The installed `@platanus/arcade-dev-ui-26` cover checker finds the original cover with:
+
+```text
+git log --diff-filter=A --format=%H -- cover.png | tail -1
+```
+
+On Windows, `tail.exe` may not be on the child-process PATH. In that case the checker incorrectly reports `Default cover detected` even when the cover hash changed. Git for Windows includes the needed executable at `C:\Program Files\Git\usr\bin\tail.exe`.
+
+Start the dev UI with that directory prepended to PATH when the warning appears:
+
+```powershell
+$env:Path = "C:\Program Files\Git\usr\bin;$env:Path"
+npm run dev
+```
+
+Then hard-refresh the dev UI with `Ctrl+F5`. The cover checker should report `Custom cover provided`. Do not change the checker package or repository config to work around this warning.
+
+### Repository Safety
+
+- Keep the runtime implementation in `game.js`; do not add imports, external assets, fetches, or network code.
+- Preserve the exact cabinet keys.
+- Do not replace the current HOOK design with the old brick-breaker concept.
+- Do not add large embedded assets; use procedural primitives and generated textures.
+- Before commits, inspect `git status`, `git diff`, and the staged file list. Stage only intended files.
+- The project instructions originally restrict edits to `game.js`, `metadata.json`, and `cover.png`; follow that restriction for implementation work. `AGENTS.md` was expanded once to preserve this handoff context.
