@@ -18,13 +18,20 @@ const SPECIES = [
   ['Pez espada', 360, 130, '#8ecae6', 1.6, 115, 4],
   ['Anguila', 430, 170, '#95d5b2', 1.7, 85, 3],
   ['Pez linterna', 600, 300, '#ff6b6b', 1.3, 65, 1.6],
-  ['Kraken dorado', 750, 500, '#ffd700', 1.9, 75, 0.9],
+  ['Manta dorada', 720, 450, '#ffd700', 1.9, 75, 0.9],
 ];
 
+const ZONES = [
+  [0, 'ARRECIFE', PAL.y], [150, 'CORAL OSCURO', '#ff8c61'],
+  [300, 'ZONA CREPUSCULAR', '#b88cff'], [500, 'ABISMO ELÉCTRICO', '#63f2d0'],
+  [700, 'FOSA DORADA', '#ffd700'],
+];
+const BOSS_D = 820;
+
 const UPGRADES = {
-  d: { name: 'LÍNEA PROFUNDA', desc: 'Alcanza mayor profundidad', cost: [100, 250, 500], max: [280, 450, 650, 900] },
-  l: { name: 'CEBO DE LUJO', desc: 'Atrae peces más raros', cost: [100, 250, 500] },
-  c: { name: 'MANOS FRÍAS', desc: 'Capturas más fáciles', cost: [100, 250, 500] },
+  d: { name: 'LÍNEA PROFUNDA', desc: 'Más fondo y resistencia', cost: [60, 150, 300], max: [360, 520, 700, 900] },
+  l: { name: 'CEBO DE LUJO', desc: 'Atrae peces más raros', cost: [80, 180, 360] },
+  c: { name: 'MANOS FRÍAS', desc: 'Capturas más fáciles', cost: [80, 180, 360] },
 };
 
 const CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -86,15 +93,15 @@ function create() {
   const s = this;
   s.state = {
     phase: 'menu', t: 0, time: 0, paused: false,
-    coins: 0, casts: 5, runMax: 0, best: null,
+    coins: 0, casts: 5, runMax: 0, best: null, catches: 0, combo: 0, won: false,
     up: { d: 0, l: 0, c: 0 },
     scores: [], records: { d: 0, l: 0 },
     hook: { x: 250, y: WATER_Y + 40, depth: 0 },
-    fish: [], jellies: [],
+    fish: [], jellies: [], eels: [],
     crab: null, crabCd: 8, crabWarn: 0,
-    spawnT: 0.4, jellyT: 4, invuln: 0,
+    spawnT: 0.4, jellyT: 2, eelT: 3, invuln: 0, lineHp: 2,
     cast: null, bite: null, mg: null, catchT: -1, cut: false,
-    newRecShown: false, poseTimer: 0,
+    newRecShown: false, poseTimer: 0, zmax: -1, bossT: 0,
     menu: { i: 0 }, shop: { i: 0, cd: 0 }, entry: null,
     blinkT: 2, blink: 0, lastAX: 0, lastAY: 0,
   };
@@ -105,6 +112,7 @@ function create() {
   buildDock(s);
   buildMacaw(s);
   buildLine(s);
+  buildDepthMap(s);
   buildHud(s);
   buildMenu(s);
   buildShop(s);
@@ -156,6 +164,10 @@ function update(time, delta) {
       break;
     case 'bite':
       biteUpdate(s, dt);
+      break;
+    case 'boss':
+      bossUpdate(s, dt);
+      if (once(s, ['START1', 'START2'])) togglePause(s);
       break;
     case 'mg':
       mgUpdate(s, dt);
@@ -407,8 +419,8 @@ function buildBackground(s) {
   s.add.circle(120, 84, 48, 0xffe066, 0.25).setDepth(1);
   s.add.circle(120, 84, 34, 0xfff3b0, 0.95).setDepth(1);
 
-  s.add.polygon(150, WATER_Y, [-95, 0, 95, 0, 34, -16, -28, -24], 0x1a5f6b).setDepth(1);
-  s.add.polygon(345, WATER_Y, [-60, 0, 60, 0, 20, -12, -18, -16], 0x17606b).setDepth(1);
+  s.add.polygon(150, WATER_Y, [-95, 0, 95, 0, 34, -16, -28, -24], 0x1a5f6b).setOrigin(0, 0).setDepth(1);
+  s.add.polygon(345, WATER_Y, [-60, 0, 60, 0, 20, -12, -18, -16], 0x17606b).setOrigin(0, 0).setDepth(1);
 
   for (const [cx, cy, sc] of [[250, 58, 1], [560, 40, 0.7], [700, 78, 0.55]]) {
     const c = s.add.container(cx, cy).setDepth(1);
@@ -466,7 +478,7 @@ function waterTick(s, dt) {
     g.fillEllipse(88 + i * 22 + Math.sin(t * 1.1 + i) * 6, WATER_Y + 7, 24 - i * 4, 3);
   }
 
-  const d = st.phase === 'sink' || st.phase === 'bite' || st.phase === 'mg' ? st.hook.depth : 0;
+  const d = st.phase === 'sink' || st.phase === 'bite' || st.phase === 'mg' || st.phase === 'boss' ? st.hook.depth : 0;
   s.overlay.setAlpha(Phaser.Math.Clamp(d / 900, 0, 1) * 0.72);
 
   const rayA = Phaser.Math.Clamp(1 - d / 320, 0, 1) * 0.16;
@@ -606,7 +618,7 @@ function macawTick(s, dt) {
   m.wingC.rotation += (p.wing + Math.sin(t * 2) * 0.03 - m.wingC.rotation) * k;
 
   let look = 0;
-  if (st.phase === 'sink' || st.phase === 'mg' || st.phase === 'bite') {
+  if (st.phase === 'sink' || st.phase === 'mg' || st.phase === 'bite' || st.phase === 'boss') {
     look = Phaser.Math.Clamp((st.hook.x - 588) / 1400, -0.2, 0.1);
   }
   m.headC.rotation += (p.head + look - m.headC.rotation) * k;
@@ -641,6 +653,29 @@ function buildLine(s) {
   s.crabBarBg = s.add.rectangle(-100, -100, 46, 5, 0x0a1626, 0.8).setDepth(5).setVisible(false);
   s.crabBar = s.add.rectangle(-100, -100, 42, 3, 0xffd23f).setDepth(5).setVisible(false);
   s.warnT = T(s, -100, -100, '!', 26, PAL.r).setDepth(6).setVisible(false);
+  s.hookHint = s.add.circle(-100, -100, 21, 0, 0).setStrokeStyle(2, tintOf(PAL.y)).setDepth(6).setVisible(false);
+}
+
+function depthY(d) {
+  const top = WATER_Y + 36;
+  return top + (H - 62 - top) * Math.pow(Phaser.Math.Clamp(d / 900, 0, 1), 0.8);
+}
+
+function buildDepthMap(s) {
+  const c = s.add.container(0, 0).setDepth(6).setVisible(false);
+  s.depthC = c;
+  c.add(s.add.rectangle(24, (depthY(0) + depthY(900)) / 2, 2, depthY(900) - depthY(0), 0xd8f3ff, 0.28));
+  for (const z of ZONES) {
+    const y = depthY(z[0]);
+    c.add(s.add.rectangle(24, y, 12, 2, tintOf(z[2]), 0.8));
+    c.add(T(s, 34, y, z[0] + 'm', 9, z[2], 0).setAlpha(0.78));
+  }
+  const y = depthY(BOSS_D);
+  s.bossMark = s.add.rectangle(24, y, 16, 3, 0xffd700, 1).setAlpha(0.25);
+  s.bossLabel = T(s, 34, y, '???', 9, '#ffd700', 0).setAlpha(0.45);
+  c.add([s.bossMark, s.bossLabel]);
+  s.depthPin = s.add.triangle(16, depthY(0), 0, 0, 9, 5, 0, 10, 0xffffff).setDepth(7);
+  c.add(s.depthPin);
 }
 
 function lineDraw(s) {
@@ -651,7 +686,7 @@ function lineDraw(s) {
   const tip = rodTipPos(s);
   const hx = st.hook.x;
   const hy = st.hook.y - 10;
-  const tense = st.phase === 'bite' || st.phase === 'mg' || st.phase === 'reel';
+  const tense = st.phase === 'bite' || st.phase === 'mg' || st.phase === 'reel' || st.phase === 'boss';
   const sag = tense ? 2 : Math.hypot(hx - tip.x, hy - tip.y) * 0.1;
   const mx = (tip.x + hx) / 2;
   const my = (tip.y + hy) / 2 + sag;
@@ -678,8 +713,11 @@ function buildHud(s) {
   }
   s.hud.depthT = T(s, W - 20, 22, '', 24, PAL.w, 1);
   s.hud.recT = T(s, W - 20, 46, '', 11, PAL.dim, 1);
+  s.hud.runT = T(s, 326, 22, '', 11, PAL.dim);
+  s.hud.trail = [0, 1, 2].map((i) => s.add.circle(363 + i * 15, 22, 4, 0x38404d).setStrokeStyle(1, tintOf(PAL.y), 0.55));
+  s.hud.lineT = T(s, 350, 43, '', 11, PAL.w);
   s.hud.promptT = T(s, W / 2, H - 24, '', 15, PAL.dim).setAlpha(0);
-  s.hudC.add([s.hud.coinI, s.hud.coinT, ...s.hud.hooks, s.hud.depthT, s.hud.recT, s.hud.promptT]);
+  s.hudC.add([s.hud.coinI, s.hud.coinT, ...s.hud.hooks, s.hud.depthT, s.hud.recT, s.hud.runT, ...s.hud.trail, s.hud.lineT, s.hud.promptT]);
   s.tweens.add({ targets: s.hud.promptT, alpha: { from: 0.25, to: 0.9 }, duration: 700, yoyo: true, repeat: -1 });
 }
 
@@ -699,18 +737,28 @@ function updateHooksHud(s) {
   });
 }
 
+function updateRunHud(s) {
+  const st = s.state;
+  s.hud.runT.setText(st.catches >= 3 ? 'KRAKEN LOCALIZADO' : 'RASTRO' + (st.combo > 1 ? ' x' + st.combo : ''));
+  s.hud.runT.setColor(st.catches >= 3 ? PAL.y : PAL.dim);
+  s.hud.trail.forEach((p, i) => p.setVisible(st.catches < 3).setFillStyle(i < st.catches ? tintOf(PAL.y) : 0x38404d));
+  s.bossLabel.setText(st.catches >= 3 ? 'KRAKEN' : '???').setAlpha(st.catches >= 3 ? 1 : 0.45);
+  s.bossMark.setAlpha(st.catches >= 3 ? 1 : 0.25);
+  s.hud.lineT.setText(st.lineOn ? 'LÍNEA ' + '◆'.repeat(st.lineHp) : '');
+}
+
 function setPrompt(s, str) {
   s.hud.promptT.setText(str);
 }
 
-function popText(s, x, y, str, color, size) {
-  const t = T(s, x, y, str, size || 22, color || PAL.w).setDepth(12);
+function popText(s, x, y, str, color, size, hold) {
+  const t = T(s, x, y, str, size || 22, color || PAL.w).setDepth(12).setStroke('#071526', 2);
   t.setScale(0.4);
   s.tweens.add({
     targets: t, scale: 1, duration: 110, ease: 'Back.easeOut',
     onComplete: () => {
       s.tweens.add({
-        targets: t, y: y - 26, alpha: 0, duration: 850, delay: 240, ease: 'Cubic.easeOut',
+        targets: t, y: y - 26, alpha: 0, duration: 850, delay: hold || 240, ease: 'Cubic.easeOut',
         onComplete: () => t.destroy(),
       });
     },
@@ -773,9 +821,8 @@ function spawnFish(s) {
     if (r <= 0) { pick = pool[i]; break; }
   }
   const dir = Math.random() < 0.5 ? 1 : -1;
-  const yMin = Math.max(WATER_Y + 46, st.hook.y - 130);
-  const yMax = Math.min(H - 56, st.hook.y + 130);
-  const y = yMin + Math.random() * (yMax - yMin);
+  const fd = Phaser.Math.Clamp(d + Phaser.Math.Between(-65, 65), 18, 790);
+  const y = depthY(fd);
   const x = dir > 0 ? -40 : W + 40;
   const sc = pick[4];
   const body = s.add.image(0, 0, 'fishT').setFlipX(dir < 0).setTint(tintOf(pick[3])).setScale(sc);
@@ -783,7 +830,7 @@ function spawnFish(s) {
   const c = s.add.container(x, y, [body, eye]).setDepth(4);
   const glow = pick[2] >= 300 ? s.add.circle(0, 0, 26 * sc, 0xffe28a, 0.16).setDepth(3) : null;
   const fish = {
-    c, body, glow, y0: y, sp: pick[5], dir, val: pick[2], name: pick[0],
+    c, body, glow, d: fd, sp: pick[5], dir, val: pick[2], name: pick[0],
     r: 13 * sc + 6, seed: Math.random() * 10, frozen: false, leg: pick[2] >= 300,
   };
   if (glow) {
@@ -798,7 +845,7 @@ function updateFishes(s, dt) {
     const f = st.fish[i];
     if (!frozenAll(st) && !f.frozen) {
       f.c.x += f.dir * f.sp * dt;
-      f.c.y = f.y0 + Math.sin(st.t * 2 + f.seed) * 6;
+      f.c.y = depthY(f.d) + Math.sin(st.t * 2 + f.seed) * 6;
       f.body.rotation = Math.sin(st.t * 6 + f.seed) * 0.07;
     }
     if (f.glow) f.glow.setPosition(f.c.x, f.c.y);
@@ -822,28 +869,78 @@ function destroyFish(s, i) {
 function spawnJelly(s) {
   const st = s.state;
   const fromLeft = Math.random() < 0.5;
-  const c = s.add.container(fromLeft ? -30 : W + 30, Phaser.Math.Clamp(st.hook.y + Phaser.Math.Between(-70, 70), WATER_Y + 60, H - 50))
+  const d = Phaser.Math.Clamp(st.hook.depth + Phaser.Math.Between(-55, 55), 300, 790);
+  const c = s.add.container(fromLeft ? -30 : W + 30, depthY(d))
     .setDepth(4)
     .add(s.add.image(0, 0, 'jellyT'));
   s.tweens.add({ targets: c, scaleY: 1.15, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-  st.jellies.push({ c, seed: Math.random() * 10, dir: fromLeft ? 1 : -1 });
+  st.jellies.push({ c, d, seed: Math.random() * 10, dir: fromLeft ? 1 : -1 });
 }
 
 function updateJellies(s, dt) {
   const st = s.state;
   for (let i = st.jellies.length - 1; i >= 0; i--) {
     const j = st.jellies[i];
-    j.c.x += (j.dir * 26 + Math.sign(st.hook.x - j.c.x) * 16) * dt;
-    j.c.y += Math.sin(st.t * 1.5 + j.seed) * 12 * dt;
+    j.c.x += j.dir * 34 * dt;
+    j.c.y = depthY(j.d) + Math.sin(st.t * 1.5 + j.seed) * 7;
     if (Math.hypot(j.c.x - st.hook.x, j.c.y - st.hook.y) < 24) {
-      lineCut(s);
-      return;
+      j.c.destroy();
+      st.jellies.splice(i, 1);
+      damageLine(s, '¡MEDUSA!');
+      if (st.phase !== 'sink') return;
+      continue;
     }
     if (j.c.x < -60 || j.c.x > W + 60) {
       j.c.destroy();
       st.jellies.splice(i, 1);
     }
   }
+}
+
+function spawnEel(s) {
+  const st = s.state;
+  const left = Math.random() < 0.5;
+  const d = Phaser.Math.Clamp(st.hook.depth + Phaser.Math.Between(-45, 45), 500, 810);
+  const glow = s.add.ellipse(0, 0, 86, 24, 0x7fffd4, 0.2);
+  const body = s.add.image(0, 0, 'fishT').setScale(1.7, 0.55).setTint(0x7fffd4).setFlipX(!left);
+  const c = s.add.container(left ? 54 : W - 54, depthY(d), [glow, body]).setDepth(5).setAlpha(0.25);
+  st.eels.push({ c, d, dir: left ? 1 : -1, t: 0.75, dash: false });
+  sfx(s, 'eel');
+}
+
+function updateEels(s, dt) {
+  const st = s.state;
+  for (let i = st.eels.length - 1; i >= 0; i--) {
+    const e = st.eels[i];
+    e.c.y = depthY(e.d);
+    e.t -= dt;
+    if (!e.dash) {
+      e.c.alpha = 0.2 + Math.abs(Math.sin(st.t * 18)) * 0.7;
+      if (e.t <= 0) { e.dash = true; e.c.alpha = 1; sfx(s, 'zap'); }
+    } else {
+      e.c.x += e.dir * (470 + st.catches * 35) * dt;
+      if (Math.hypot(e.c.x - st.hook.x, e.c.y - st.hook.y) < 34) {
+        e.c.destroy();
+        st.eels.splice(i, 1);
+        damageLine(s, '¡ANGUILA!');
+        if (st.phase !== 'sink') return;
+        continue;
+      }
+    }
+    if (e.c.x < -100 || e.c.x > W + 100) { e.c.destroy(); st.eels.splice(i, 1); }
+  }
+}
+
+function damageLine(s, msg) {
+  const st = s.state;
+  if (st.invuln > 0 || st.phase !== 'sink') return;
+  st.lineHp--;
+  st.invuln = 1.25;
+  sfx(s, 'zap');
+  s.cameras.main.shake(150, 0.006);
+  popText(s, st.hook.x, st.hook.y - 30, msg, PAL.r, 19);
+  updateRunHud(s);
+  if (st.lineHp <= 0) lineCut(s);
 }
 
 function toDock(s, fresh) {
@@ -854,6 +951,10 @@ function toDock(s, fresh) {
     st.up = { d: 0, l: 0, c: 0 };
     st.runMax = 0;
     st.best = null;
+    st.catches = 0;
+    st.combo = 0;
+    st.won = false;
+    st.zmax = -1;
     st.newRecShown = false;
   }
   st.phase = 'dock';
@@ -861,9 +962,15 @@ function toDock(s, fresh) {
   s.hudC.setVisible(true);
   updateCoinsHud(s);
   updateHooksHud(s);
+  updateRunHud(s);
   s.hud.depthT.setText('');
+  s.depthC.setVisible(false);
   macawState(s, 'IDLE');
-  setPrompt(s, 'B1 LANZAR · B2 TIENDA');
+  if (fresh) {
+    setPrompt(s, 'OBJETIVO: CAPTURA 3 PECES PARA LOCALIZAR AL KRAKEN');
+    popText(s, W / 2, 250, 'CAPTURA 3 PECES', PAL.y, 27, 2200);
+    s.time.delayedCall(2300, () => { if (st.phase === 'dock') setPrompt(s, 'B1 LANZAR · B2 TIENDA'); });
+  } else setPrompt(s, st.catches >= 3 ? 'B1 INICIAR CAZA FINAL · B2 TIENDA' : 'B1 LANZAR · B2 TIENDA');
 }
 
 function dockUpdate(s) {
@@ -882,6 +989,12 @@ function startCast(s) {
   st.phase = 'cast';
   st.cast = { t: 0, launched: false, fly: 0 };
   st.hook = { x: -100, y: -100, depth: 0 };
+  st.lineHp = 2 + (st.up.d >= 2 ? 1 : 0);
+  st.deepestCast = 0;
+  st.atLimit = false;
+  st.bossStarted = false;
+  st.aim = 0;
+  s.hookHint.setVisible(false);
   s.hookS.setVisible(false);
   s.bead.setVisible(false);
   macawState(s, 'CAST');
@@ -918,10 +1031,14 @@ function castUpdate(s, dt) {
       st.hook.y = WATER_Y + 34;
       st.phase = 'sink';
       st.spawnT = 0.6;
-      st.jellyT = 3 + Math.random() * 4;
-      st.crabCd = 7 + Math.random() * 6;
+      st.jellyT = 1.4 + Math.random() * 1.8;
+      st.eelT = 1.8 + Math.random() * 2.2;
+      st.crabCd = 1.1 + Math.random() * 1.4;
       st.crab = null;
       st.invuln = 0.8;
+      s.depthC.setVisible(true);
+      updateRunHud(s);
+      setPrompt(s, st.catches >= 3 ? 'BAJA A 820m · SOBREVIVE · KRAKEN' : 'ACÉRCATE AL PEZ · B1 ENGANCHAR');
       macawState(s, 'FISHING');
     }
   }
@@ -930,40 +1047,60 @@ function castUpdate(s, dt) {
 function sinkUpdate(s, dt) {
   const st = s.state;
   const hook = st.hook;
-  const maxD = UPGRADES.d.max[st.up.d];
-
-  hook.depth += 42 * (st.crab ? 0.45 : 1) * dt;
+  const maxD = st.catches >= 3 ? 900 : UPGRADES.d.max[st.up.d];
+  const ay = axisY(s);
+  const vy = ay > 0 ? 76 : ay < 0 ? -92 : 12;
+  hook.depth = Phaser.Math.Clamp(hook.depth + vy * (st.crab ? 0.45 : 1) * dt, 0, maxD);
+  st.deepestCast = Math.max(st.deepestCast, hook.depth);
   st.runMax = Math.max(st.runMax, Math.round(hook.depth));
-  s.hud.depthT.setText(Math.round(hook.depth) + ' m');
+  s.hud.depthT.setText(Math.round(hook.depth) + ' / ' + maxD + ' m');
+  s.depthPin.y = depthY(hook.depth);
 
   if (!st.newRecShown && st.records.d >= 50 && hook.depth > st.records.d) {
     st.newRecShown = true;
     newDepthBanner(s);
   }
 
-  const prevX = hook.x;
   hook.x = Phaser.Math.Clamp(hook.x + axisX(s) * 265 * dt, 60, 505);
-  const yMin = WATER_Y + 36;
-  hook.y = yMin + (H - 62 - yMin) * Math.pow(Math.min(hook.depth / maxD, 1), 0.8);
+  hook.y = depthY(hook.depth);
 
-  st.spawnT -= dt;
-  if (st.spawnT <= 0 && st.fish.length < 8) {
-    spawnFish(s);
-    st.spawnT = 0.75 + Math.random() * 0.7;
+  let zone = 0;
+  for (let i = 1; i < ZONES.length; i++) if (hook.depth >= ZONES[i][0]) zone = i;
+  if (zone > st.zmax) {
+    st.zmax = zone;
+    if (zone > 0) { popText(s, W / 2, 208, ZONES[zone][1], ZONES[zone][2], 21); sfx(s, 'record'); }
+  }
+
+  if (st.catches < 3) {
+    st.spawnT -= dt;
+    if (st.spawnT <= 0 && st.fish.length < 8) {
+      spawnFish(s);
+      st.spawnT = 0.75 + Math.random() * 0.7;
+    }
   }
 
   if (hook.depth >= 300) {
     st.jellyT -= dt;
     if (st.jellyT <= 0 && st.jellies.length < 3) {
       spawnJelly(s);
-      st.jellyT = 4.5 + Math.random() * 4 * Math.max(0.4, 1 - hook.depth / 900);
+      st.jellyT = (2.6 + Math.random() * 3 * Math.max(0.45, 1 - hook.depth / 1000)) / (1 + st.catches * 0.16);
     }
     updateJellies(s, dt);
     if (st.phase !== 'sink') return;
   }
 
+  if (hook.depth >= 500) {
+    st.eelT -= dt;
+    if (st.eelT <= 0 && st.eels.length < 2) {
+      spawnEel(s);
+      st.eelT = (3.4 + Math.random() * 3) / (1 + st.catches * 0.14);
+    }
+    updateEels(s, dt);
+    if (st.phase !== 'sink') return;
+  }
+
   if (hook.depth >= 150 && !st.crab && st.crabWarn <= 0) {
-    st.crabCd -= dt * (0.6 + hook.depth / 700);
+    st.crabCd -= dt * (0.6 + hook.depth / 700 + st.catches * 0.18);
     if (st.crabCd <= 0) {
       st.crabWarn = 0.85;
       st.crabCd = 9 + Math.random() * 7;
@@ -997,14 +1134,33 @@ function sinkUpdate(s, dt) {
   }
 
   st.invuln -= dt;
+  const hookPress = once(s, ['P1_1', 'P2_1']);
+  let aim = -1, hit = -1, nearD = 1e9;
   if (!st.crab && st.invuln <= 0) {
     for (let i = 0; i < st.fish.length; i++) {
       const f = st.fish[i];
-      if (Math.hypot(f.c.x - hook.x, f.c.y - hook.y) < f.r + 10) {
-        startBite(s, i);
-        return;
-      }
+      const d = Math.hypot(f.c.x - hook.x, f.c.y - hook.y);
+      if (d < f.r + 34 && d < nearD) { aim = i; nearD = d; }
+      if (d < f.r + 11) hit = i;
     }
+  }
+  if (aim >= 0) {
+    const f = st.fish[aim];
+    const ready = hit >= 0;
+    s.hookHint.setPosition(f.c.x, f.c.y).setScale((f.r + 12) / 21).setStrokeStyle(2, ready ? 0x70e000 : tintOf(PAL.y)).setVisible(true);
+    if (st.aim !== (ready ? 2 : 1)) setPrompt(s, ready ? '¡B1 AHORA!' : 'ACÉRCATE MÁS · B1 ENGANCHAR');
+    st.aim = ready ? 2 : 1;
+    if (hookPress) {
+      if (ready) { s.hookHint.setVisible(false); startBite(s, hit); return; }
+      f.sp *= 1.7;
+      f.dir = f.c.x < hook.x ? -1 : 1;
+      popText(s, hook.x, hook.y - 25, '¡FALLASTE!', PAL.r, 15);
+      sfx(s, 'fail');
+    }
+  } else {
+    s.hookHint.setVisible(false);
+    if (st.aim) setPrompt(s, st.catches >= 3 ? 'BAJA A 820m · SOBREVIVE · KRAKEN' : 'ACÉRCATE AL PEZ · B1 ENGANCHAR');
+    st.aim = 0;
   }
 
   updateFishes(s, dt);
@@ -1017,8 +1173,18 @@ function sinkUpdate(s, dt) {
     });
   }
 
-  if (hook.depth >= maxD) {
-    reelEmpty(s);
+  if (st.catches >= 3 && hook.depth >= BOSS_D && !st.bossStarted) {
+    startBoss(s);
+    return;
+  }
+
+  if (hook.depth >= maxD && !st.atLimit) {
+    st.atLimit = true;
+    popText(s, W / 2, 240, st.catches >= 3 ? 'ALGO ENORME SE ACERCA...' : 'LÍMITE DE LA LÍNEA', st.catches >= 3 ? PAL.y : PAL.dim, 20);
+  }
+  if (hook.depth < maxD - 8) st.atLimit = false;
+  if (st.deepestCast > 18 && hook.depth <= 1 && ay < 0) {
+    reelEmpty(s, 'RECOGIDA');
   }
 }
 
@@ -1031,6 +1197,48 @@ function newDepthBanner(s) {
   st.poseTimer = 1.2;
 }
 
+function startBoss(s) {
+  const st = s.state;
+  st.bossStarted = true;
+  st.phase = 'boss';
+  st.bossT = 0;
+  for (let i = st.fish.length - 1; i >= 0; i--) destroyFish(s, i);
+  for (const j of st.jellies) j.c.destroy();
+  for (const e of st.eels) e.c.destroy();
+  st.jellies = [];
+  st.eels = [];
+  st.crab = null;
+  st.crabWarn = 0;
+  s.warnT.setVisible(false);
+  s.crabS.setVisible(false);
+  s.crabBarBg.setVisible(false);
+  s.crabBar.setVisible(false);
+  const glow = s.add.circle(W + 90, depthY(BOSS_D), 76, 0xffd700, 0.18).setDepth(3);
+  const body = s.add.image(0, 0, 'fishT').setScale(2.8, 2.35).setTint(0xffd700).setFlipX(true);
+  const eye = s.add.image(-36, -8, 'fishEye').setScale(1.7);
+  const c = s.add.container(W + 90, depthY(BOSS_D), [body, eye]).setDepth(5);
+  const f = { c, body, glow, d: BOSS_D, sp: 0, dir: -1, val: 1000, name: 'Kraken dorado', r: 58, seed: 0, frozen: true, leg: true, boss: true };
+  st.fish.push(f);
+  setPrompt(s, '¡KRAKEN DORADO!');
+  sfx(s, 'legendary');
+  s.cameras.main.shake(400, 0.008);
+  popText(s, W / 2, 250, '¡KRAKEN DORADO!', PAL.y, 34, 1600);
+  s.tweens.add({ targets: [c, glow], x: hookBossX(st), duration: 1050, ease: 'Cubic.easeOut' });
+}
+
+function hookBossX(st) { return Phaser.Math.Clamp(st.hook.x + 92, 180, 500); }
+
+function bossUpdate(s, dt) {
+  const st = s.state;
+  st.bossT += dt;
+  const f = st.fish[0];
+  if (!f) return;
+  f.c.y = depthY(BOSS_D) + Math.sin(st.t * 3) * 12;
+  f.glow.y = f.c.y;
+  f.body.rotation = Math.sin(st.t * 5) * 0.06;
+  if (st.bossT > 1.35) startBite(s, 0);
+}
+
 function startBite(s, idx) {
   const st = s.state;
   const f = st.fish[idx];
@@ -1039,10 +1247,12 @@ function startBite(s, idx) {
   st.crabWarn = 0;
   s.warnT.setVisible(false);
   st.phase = 'bite';
+  st.aim = 0;
+  s.hookHint.setVisible(false);
   macawState(s, 'BITE');
   sfx(s, 'bite');
   s.cameras.main.shake(130, 0.005);
-  popText(s, f.c.x, f.c.y - 26, '¡PICADA!', PAL.w, 20);
+  popText(s, f.c.x, f.c.y - 26, f.boss ? '¡LUCHA FINAL!' : '¡PICADA!', f.boss ? PAL.y : PAL.w, f.boss ? 26 : 20);
 }
 
 function biteUpdate(s, dt) {
@@ -1073,6 +1283,8 @@ function lineCut(s) {
   const st = s.state;
   if (st.cut) return;
   st.cut = true;
+  st.combo = 0;
+  updateRunHud(s);
   st.phase = 'reel';
   st.crab = null;
   sfx(s, 'cut');
@@ -1081,6 +1293,7 @@ function lineCut(s) {
   s.crabBarBg.setVisible(false);
   s.crabBar.setVisible(false);
   s.warnT.setVisible(false);
+  s.hookHint.setVisible(false);
   popText(s, st.hook.x, st.hook.y - 30, '¡LÍNEA ROTA!', PAL.r, 24);
   st.lineOn = false;
   s.hookS.setVisible(false);
@@ -1089,10 +1302,10 @@ function lineCut(s) {
   s.time.delayedCall(1100, () => endCast(s, false));
 }
 
-function reelEmpty(s) {
+function reelEmpty(s, msg) {
   const st = s.state;
   st.phase = 'reel';
-  popText(s, st.hook.x, st.hook.y - 26, 'SIN PICADA', PAL.dim, 18);
+  popText(s, st.hook.x, st.hook.y - 26, msg || 'SIN PICADA', PAL.dim, 18);
   reelUp(s, () => endCast(s, false));
 }
 
@@ -1120,6 +1333,8 @@ function reelUp(s, done) {
 function failCatch(s) {
   const st = s.state;
   const f = st.bite.f;
+  st.combo = 0;
+  updateRunHud(s);
   mgHide(s);
   sfx(s, 'fail');
   popText(s, f.c.x, f.c.y - 24, '¡SE FUE!', PAL.r, 26);
@@ -1158,10 +1373,15 @@ function caughtCatch(s) {
         sfx(s, 'catch');
       }
       popText(s, 588, DOCK_Y - 96, '¡ATRAPADO!', PAL.w, 24);
-      popText(s, 588, DOCK_Y - 66, f.name + '  +' + f.val, PAL.y, 18);
-      st.coins += f.val;
-      if (!st.best || f.val > st.best.val) st.best = { val: f.val, name: f.name };
-      coinsFly(s, 500, DOCK_Y - 60, f.val);
+      st.combo++;
+      if (!f.boss) st.catches++;
+      const reward = f.boss ? f.val : Math.round(f.val * (1 + (st.combo - 1) * 0.25));
+      popText(s, 588, DOCK_Y - 66, f.name + '  +' + reward + (st.combo > 1 ? '  x' + st.combo : ''), PAL.y, 18);
+      st.coins += reward;
+      if (!st.best || reward > st.best.val) st.best = { val: reward, name: f.name };
+      updateRunHud(s);
+      if (!f.boss) clueFX(s);
+      coinsFly(s, 500, DOCK_Y - 60, reward);
       s.tweens.add({
         targets: fc, x: 512, y: DOCK_Y - 58, scale: 1.35, duration: 430, ease: 'Sine.easeOut',
         onUpdate: () => { if (f.glow) f.glow.setPosition(fc.x, fc.y); },
@@ -1173,12 +1393,28 @@ function caughtCatch(s) {
           s.time.delayedCall(1250, () => {
             if (f.glow) f.glow.destroy();
             fc.destroy();
-            endCast(s, true);
+            endCast(s, f.boss ? 'boss' : true);
           });
         },
       });
     },
   });
+}
+
+function clueFX(s) {
+  const n = s.state.catches;
+  if (n < 3) {
+    popText(s, W / 2, 250, 'RASTRO DEL KRAKEN ' + n + '/3', PAL.y, 24, 1800);
+    sfx(s, 'record');
+    return;
+  }
+  const dark = s.add.rectangle(W / 2, H / 2, W, H, 0x020611, 0.72).setDepth(11);
+  s.tweens.add({ targets: dark, alpha: 0, duration: 1500, delay: 550, onComplete: () => dark.destroy() });
+  s.tweens.add({ targets: [s.bossMark, s.bossLabel], alpha: { from: 0.2, to: 1 }, duration: 180, yoyo: true, repeat: 4 });
+  s.cameras.main.shake(520, 0.011);
+  sfx(s, 'legendary');
+  popText(s, W / 2, 220, '¡KRAKEN LOCALIZADO!', PAL.y, 36, 2600);
+  popText(s, W / 2, 270, 'PRÓXIMO LANZAMIENTO: CAZA FINAL', PAL.w, 17, 2600);
 }
 
 function legendaryFX(s) {
@@ -1198,7 +1434,9 @@ function endCast(s, won) {
   const st = s.state;
   for (let i = st.fish.length - 1; i >= 0; i--) destroyFish(s, i);
   for (const j of st.jellies) j.c.destroy();
+  for (const e of st.eels) e.c.destroy();
   st.jellies = [];
+  st.eels = [];
   st.bite = null;
   st.mg = null;
   st.crab = null;
@@ -1207,19 +1445,26 @@ function endCast(s, won) {
   s.crabBarBg.setVisible(false);
   s.crabBar.setVisible(false);
   s.warnT.setVisible(false);
+  s.hookHint.setVisible(false);
   s.hookS.setVisible(false);
   s.bead.setVisible(false);
   st.lineOn = false;
   st.cut = false;
   s.lineG.clear();
   s.hud.depthT.setText('');
+  s.depthC.setVisible(false);
+  updateRunHud(s);
   macawState(s, 'IDLE');
-  if (st.casts <= 0) {
+  if (won === 'boss') {
+    st.won = true;
     st.phase = 'wait';
-    s.time.delayedCall(500, () => overShow(s));
+    s.time.delayedCall(550, () => overShow(s, true));
+  } else if (st.casts <= 0) {
+    st.phase = 'wait';
+    s.time.delayedCall(500, () => overShow(s, false));
   } else {
     st.phase = 'dock';
-    setPrompt(s, 'B1 LANZAR · B2 TIENDA');
+    setPrompt(s, st.catches >= 3 ? 'B1 INICIAR CAZA FINAL · B2 TIENDA' : 'B1 LANZAR · B2 TIENDA');
   }
 }
 
@@ -1238,7 +1483,7 @@ function hookTick(s, dt) {
     s.crabBar.setVisible(true);
     const fr = st.crab.t / 3.2;
     s.crabBar.setPosition(st.hook.x - 21 + 42 * (1 - fr) / 2, st.hook.y + 26);
-    s.crabBar.width = 42 * fr;
+    s.crabBar.setDisplaySize(42 * fr, 3);
     s.crabBar.setFillStyle(fr < 0.35 ? tintOf(PAL.r) : tintOf(PAL.y));
   } else if (st.crabWarn > 0 && st.lineOn) {
     s.warnT.setPosition(st.hook.x, st.hook.y - 30);
@@ -1251,8 +1496,9 @@ function buildMinigameUi(s) {
   s.mgUI = { c, tx: TX, y0: Y0, y1: Y1 };
 
   c.add(s.add.rectangle(TX, MID, 70, Y1 - Y0 + 10, 0x0d1b2a, 0.9).setStrokeStyle(2, 0x3a5a7a, 1));
-  c.add(T(s, TX, Y0 - 30, '¡MANTÉN EL INDICADOR SOBRE EL PEZ!', 12, PAL.w));
-  c.add(T(s, TX, Y1 + 26, 'TOCA B1 PARA SUBIR', 11, PAL.dim));
+  s.mgUI.title = T(s, TX, Y0 - 30, '¡MANTÉN EL INDICADOR SOBRE EL PEZ!', 12, PAL.w);
+  s.mgUI.hint = T(s, TX, Y1 + 26, 'TOCA B1 PARA SUBIR', 11, PAL.dim);
+  c.add([s.mgUI.title, s.mgUI.hint]);
 
   s.mgUI.progBg = s.add.rectangle(TX - 62, MID, 16, Y1 - Y0, 0x12233a, 0.9).setStrokeStyle(1, 0x3a5a7a);
   s.mgUI.progF = s.add.rectangle(TX - 62, Y1, 10, 10, 0x70e000).setOrigin(0.5, 1);
@@ -1261,7 +1507,9 @@ function buildMinigameUi(s) {
   c.add([s.mgUI.progBg, s.mgUI.progF, s.mgUI.escBg, s.mgUI.escF]);
 
   s.mgUI.zone = s.add.rectangle(TX, MID, 58, 90, 0x90e0a0, 0.3).setStrokeStyle(2, tintOf(PAL.y));
-  s.mgUI.fishI = s.add.image(TX, MID, 'fishT').setScale(0.9);
+  s.mgUI.fishB = s.add.image(0, 0, 'fishT');
+  s.mgUI.fishE = s.add.image(-12, -3, 'fishEye');
+  s.mgUI.fishI = s.add.container(TX, MID, [s.mgUI.fishB, s.mgUI.fishE]);
   c.add([s.mgUI.zone, s.mgUI.fishI]);
 }
 
@@ -1269,13 +1517,21 @@ function mgStart(s) {
   const st = s.state;
   const f = st.bite.f;
   const v = f.val;
-  const zone = Phaser.Math.Clamp(96 - v * 0.09, 40, 96) * (1 + 0.09 * st.up.c);
-  const sp = Math.min(150 + v * 0.55, 400) * (1 - 0.13 * st.up.c);
-  const er = (0.26 + v * 0.0007) * (1 - 0.12 * st.up.c);
+  const boss = !!f.boss;
+  const heat = boss ? 1 : 1 + st.catches * 0.09;
+  const zone = (boss ? 58 : Phaser.Math.Clamp(46 + f.body.scaleX * 30, 52, 88) / heat) * (1 + 0.09 * st.up.c);
+  const zw = boss ? 64 : Phaser.Math.Clamp(35 + f.body.scaleX * 22, 46, 64);
+  const sp = (boss ? 245 : Math.min(190 + v * 0.55, 420) * heat) * (1 - 0.13 * st.up.c);
+  const er = (boss ? 0.39 : (0.36 + v * 0.0008) * heat) * (1 - 0.12 * st.up.c);
   const mid = (s.mgUI.y0 + s.mgUI.y1) / 2;
-  st.mg = { fy: mid, ftg: mid, ft: 0.4, py: mid, pv: 0, prog: 0, esc: 0.25, sp, zone, er, lastOv: false };
-  s.mgUI.fishI.setTint(f.body.tintTopLeft).setScale(0.55 + f.body.scaleX * 0.5);
-  s.mgUI.zone.height = zone;
+  st.mg = { fy: mid, ftg: mid, ft: 0.3, fv: Phaser.Math.Between(-90, 90), seed: Math.random() * 8, py: mid, pv: 0, prog: 0, esc: boss ? 0.1 : 0.22, sp, zone, zw, er, lastOv: false, boss, stage: 0 };
+  const sc = boss ? 1.35 : Phaser.Math.Clamp(f.body.scaleX * 0.82, 0.58, 1.18);
+  const flip = f.body.flipX;
+  s.mgUI.fishB.setTint(f.body.tintTopLeft).setScale(sc).setFlipX(flip);
+  s.mgUI.fishE.setScale(sc).setPosition((flip ? 13 : -13) * sc, -3 * sc);
+  s.mgUI.zone.setDisplaySize(zw, zone);
+  s.mgUI.title.setText(boss ? 'KRAKEN: 3 FASES DE FURIA' : '¡MANTÉN EL INDICADOR SOBRE EL PEZ!').setColor(boss ? PAL.y : PAL.w);
+  s.mgUI.hint.setText(boss ? 'B1 SUBE · NO PIERDAS TENSIÓN' : 'TOCA B1 PARA SUBIR');
   s.mgUI.c.setVisible(true);
   macawState(s, 'BITE');
   st.phase = 'mg';
@@ -1302,28 +1558,53 @@ function mgUpdate(s, dt) {
   if (m.py > yMax) { m.py = yMax; m.pv = Math.min(0, m.pv); }
 
   m.ft -= dt;
-  if (m.ft <= 0) {
-    m.ftg = Phaser.Math.Between(ui.y0 + 22, ui.y1 - 22);
-    m.ft = 0.35 + Math.random() * 0.85;
+  if (m.boss) {
+    if (m.ft <= 0) {
+      m.ftg = Phaser.Math.Between(ui.y0 + 22, ui.y1 - 22);
+      m.ft = 0.48 + Math.random() * 0.8 - m.stage * 0.1;
+    }
+    const dy = m.ftg - m.fy;
+    const rage = 1 + m.stage * 0.18;
+    m.fy += Phaser.Math.Clamp(dy, -m.sp * rage * dt, m.sp * rage * dt) + Math.sin(st.t * 10) * m.sp * 0.12 * dt;
+  } else {
+    if (m.ft <= 0) {
+      m.fv += Phaser.Math.Between(-m.sp, m.sp);
+      m.ft = 0.18 + Math.random() * 0.38;
+    }
+    m.fv += Math.sin(st.t * 5.3 + m.seed) * m.sp * 0.9 * dt;
+    m.fv = Phaser.Math.Clamp(m.fv, -m.sp, m.sp);
+    m.fy += m.fv * dt;
   }
-  const dy = m.ftg - m.fy;
-  m.fy += Phaser.Math.Clamp(dy, -m.sp * dt, m.sp * dt) + Math.sin(st.t * 7) * m.sp * 0.12 * dt;
-  m.fy = Phaser.Math.Clamp(m.fy, ui.y0 + 14, ui.y1 - 14);
+  if (m.fy < ui.y0 + 14 || m.fy > ui.y1 - 14) {
+    m.fy = Phaser.Math.Clamp(m.fy, ui.y0 + 14, ui.y1 - 14);
+    m.fv *= -0.82;
+  }
 
   const ov = Math.abs(m.fy - m.py) < 12 + m.zone / 2;
   if (ov !== m.lastOv) {
     m.lastOv = ov;
     sfx(s, 'tick');
   }
-  m.prog = Phaser.Math.Clamp(m.prog + (ov ? 0.27 : -0.08) * dt, 0, 1);
+  m.prog = Phaser.Math.Clamp(m.prog + (ov ? (m.boss ? 0.22 : 0.23) : -0.1) * dt, 0, 1);
   m.esc = Phaser.Math.Clamp(m.esc + (ov ? -0.5 : m.er) * dt, 0, 1);
+
+  if (m.boss && m.prog >= (m.stage + 1) / 3 && m.stage < 2) {
+    m.stage++;
+    m.zone *= 0.9;
+    ui.zone.setDisplaySize(m.zw, m.zone);
+    m.ftg = m.fy < (ui.y0 + ui.y1) / 2 ? ui.y1 - 20 : ui.y0 + 20;
+    m.ft = 0.18;
+    s.cameras.main.shake(220, 0.009);
+    popText(s, ui.tx, ui.y0 - 58, 'FURIA ' + (m.stage + 1) + '/3', PAL.r, 16);
+    sfx(s, 'cut');
+  }
 
   ui.zone.setPosition(ui.tx, m.py);
   ui.zone.setFillStyle(ov ? 0xa8f0b2 : 0x6a8f7a, ov ? 0.42 : 0.28);
-  ui.fishI.setPosition(ui.tx, m.fy).setRotation(Math.sin(st.t * 8) * 0.15);
-  ui.progF.height = Math.max(4, (ui.y1 - ui.y0 - 4) * m.prog);
+  ui.fishI.setPosition(ui.tx, m.fy).setRotation(m.boss ? Math.sin(st.t * 8) * 0.15 : Phaser.Math.Clamp(m.fv / 650, -0.32, 0.32));
+  ui.progF.setDisplaySize(10, Math.max(4, (ui.y1 - ui.y0 - 4) * m.prog));
   ui.progF.setFillStyle(m.prog > 0.8 ? tintOf(PAL.y) : 0x70e000);
-  ui.escF.height = Math.max(4, (ui.y1 - ui.y0 - 4) * m.esc);
+  ui.escF.setDisplaySize(10, Math.max(4, (ui.y1 - ui.y0 - 4) * m.esc));
 
   s.mw.pose.rod = POSES.BITE.rod + (ov ? 0.1 + Math.sin(st.t * 18) * 0.09 : -0.04);
 
@@ -1427,8 +1708,8 @@ function buildMenu(s) {
   const c = s.add.container(0, 0).setDepth(15).setVisible(false);
   s.menuC = c;
   c.add(T(s, 252, 72, 'HOOK', 100, PAL.y).setStroke('#13293d', 10));
-  c.add(T(s, 252, 138, 'L A   G U A C A M A Y A   P E S C A D O R A', 13, PAL.w));
-  let x = 130;
+  c.add(T(s, 252, 138, 'L A   G U A C A M A Y A   P E S C A D O R A', 13, PAL.w).setStroke('#13293d', 3));
+  let x = 163;
   for (const [col, wd] of [[PAL.y, 74], [PAL.b, 48], [PAL.r, 48]]) {
     const r = s.add.rectangle(x + wd / 2, 160, wd, 7, tintOf(col));
     x += wd + 4;
@@ -1438,12 +1719,13 @@ function buildMenu(s) {
   const pressT = T(s, 252, 230, 'PULSA START', 20, PAL.w);
   c.add(pressT);
   s.tweens.add({ targets: pressT, alpha: { from: 0.2, to: 1 }, duration: 550, yoyo: true, repeat: -1 });
+  c.add(T(s, 252, 266, '3 PECES → LOCALIZA AL KRAKEN → VENCE', 12, PAL.y).setStroke('#13293d', 2));
   c.add(T(s, 252, 292, 'MEJORES CAPTURAS', 13, PAL.y));
   s.menuList = T(s, 252, 316, '', 14, PAL.w, 0.5).setOrigin(0.5, 0);
   c.add(s.menuList);
   s.menuRec = T(s, 252, 442, '', 12, PAL.dim);
   c.add(s.menuRec);
-  c.add(T(s, 252, 486, 'JOYSTICK MOVER · B1 LANZAR/CAPTURAR · B2 TIENDA', 11, PAL.dim));
+  c.add(T(s, 252, 486, 'W/S PROFUNDIDAD · A/D MOVER · B1 CAPTURAR · B2 TIENDA', 11, PAL.dim));
 }
 
 function refreshMenuTexts(s) {
@@ -1479,7 +1761,8 @@ function buildGameOver(s) {
   const c = s.add.container(0, 0).setDepth(20).setVisible(false);
   s.overC = c;
   c.add(s.add.rectangle(W / 2, H / 2, W, H, 0x04070f, 0.86));
-  c.add(T(s, W / 2, 128, 'FIN DE LA PARTIDA', 34, PAL.r));
+  s.overTitle = T(s, W / 2, 128, 'FIN DE LA PARTIDA', 34, PAL.r);
+  c.add(s.overTitle);
   s.overStats = T(s, W / 2, 186, '', 15, PAL.w);
   c.add(s.overStats);
 
@@ -1499,17 +1782,18 @@ function buildGameOver(s) {
   c.add(T(s, W / 2, H - 26, 'START PARA CONTINUAR', 12, PAL.dim));
 }
 
-function overShow(s) {
+function overShow(s, victory) {
   const st = s.state;
   st.phase = 'over';
   st.records.d = Math.max(st.records.d, st.runMax);
   saveRecords(s);
   s.hud.recT.setText('RÉCORD ' + st.records.d + ' m');
 
+  s.overTitle.setText(victory ? '¡KRAKEN CAPTURADO!' : 'FIN DE LA PARTIDA').setColor(victory ? PAL.y : PAL.r);
   const lines = [
-    'MONEDAS: ' + st.coins,
+    (victory ? 'VICTORIA · ' : '') + 'MONEDAS: ' + st.coins,
     st.best ? 'MEJOR CAPTURA: ' + st.best.name + ' +' + st.best.val : 'MEJOR CAPTURA: —',
-    'PROFUNDIDAD: ' + st.runMax + ' m',
+    'PROFUNDIDAD: ' + st.runMax + ' m' + (!victory && st.catches >= 3 ? ' · EL KRAKEN ESCAPÓ' : ''),
   ];
   s.overStats.setText(lines.join('\n'));
 
@@ -1522,7 +1806,7 @@ function overShow(s) {
   updateEntryLetters(s);
   refreshBoardTexts(s);
   s.overC.setVisible(true);
-  if (!qualify) sfx(s, 'gameover');
+  if (!qualify) sfx(s, victory ? 'legendary' : 'gameover');
 }
 
 function updateEntryLetters(s) {
@@ -1656,6 +1940,11 @@ function sfx(s, name) {
       case 'crab':
         tone(s, O, 'square', 210, 190, 0.05, 0.1);
         tone(s, O, 'square', 210, 190, 0.05, 0.1, 0.08);
+        break;
+      case 'eel': tone(s, O, 'sawtooth', 90, 420, 0.32, 0.07); break;
+      case 'zap':
+        tone(s, O, 'square', 1200, 90, 0.13, 0.12);
+        tone(s, O, 'sawtooth', 760, 180, 0.16, 0.07, 0.04);
         break;
       case 'buy':
         tone(s, O, 'square', 700, 700, 0.06, 0.08);
