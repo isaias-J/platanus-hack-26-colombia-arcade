@@ -9,16 +9,16 @@ const PAL = {
 };
 
 const SPECIES = [
-  ['Sardina', 0, 10, '#9fd8df', 0.55, 60, 30],
-  ['Mojarra', 40, 20, '#ffd166', 0.7, 65, 22],
-  ['Cirujano', 90, 30, '#48cae4', 0.8, 75, 14],
-  ['Pargo', 150, 45, '#e76f51', 1, 80, 10],
-  ['Pez globo', 220, 65, '#c77dff', 0.95, 60, 7],
-  ['Dorado', 280, 90, '#ffd23f', 1.25, 100, 6],
-  ['Pez espada', 360, 130, '#8ecae6', 1.6, 115, 4],
-  ['Anguila', 430, 170, '#95d5b2', 1.7, 85, 3],
-  ['Pez linterna', 600, 300, '#ff6b6b', 1.3, 65, 1.6],
-  ['Manta dorada', 720, 450, '#ffd700', 1.9, 75, 0.9],
+  ['Sardina', 0, 15, '#9fd8df', 0.55, 60, 30],
+  ['Mojarra', 40, 25, '#ffd166', 0.7, 65, 22],
+  ['Cirujano', 90, 35, '#48cae4', 0.8, 75, 14],
+  ['Pargo', 150, 55, '#e76f51', 1, 80, 10],
+  ['Pez globo', 220, 75, '#c77dff', 0.95, 60, 7],
+  ['Dorado', 280, 100, '#ffd23f', 1.25, 100, 6],
+  ['Pez espada', 360, 140, '#8ecae6', 1.6, 115, 4],
+  ['Anguila', 430, 180, '#95d5b2', 1.7, 85, 3],
+  ['Pez linterna', 600, 300, '#ff6b6b', 1.3, 65, 3.2],
+  ['Manta dorada', 720, 450, '#ffd700', 1.9, 75, 2.2],
 ];
 
 const ZONES = [
@@ -29,14 +29,18 @@ const ZONES = [
 const BOSS_D = 820;
 
 const UPGRADES = {
-  d: { name: 'LÍNEA PROFUNDA', desc: 'Más fondo y resistencia', cost: [60, 150, 300], max: [360, 520, 700, 900] },
-  l: { name: 'CEBO DE LUJO', desc: 'Atrae peces más raros', cost: [80, 180, 360] },
-  c: { name: 'MANOS FRÍAS', desc: 'Capturas más fáciles', cost: [80, 180, 360] },
+  d: { n: 'LÍNEA PROFUNDA', d: 'Más fondo y resistencia', c: [30, 70, 150], m: [360, 520, 700, 900] },
+  l: { n: 'CEBO DE LUJO', d: 'Atrae peces más raros', c: [40, 90, 190] },
+  c: { n: 'MANOS FRÍAS', d: 'Capturas más fáciles', c: [40, 90, 190] },
 };
 
 const CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const KEY_SCORES = 'hook-26-scores';
 const KEY_REC = 'hook-26-records';
+const C = Phaser.Math.Clamp, B = Phaser.Math.Between;
+const SQ = 'square', SW = 'sawtooth', TL = 'triangle', SI = 'sine';
+const EO = 'Cubic.easeOut', EI = 'Cubic.easeIn', SB = 'Sine.easeInOut', BO = 'Back.easeOut', SO = 'Sine.easeOut', QI = 'Quad.easeIn';
+const CN = [523, 659, 784, 1047];
 
 // DO NOT replace existing keys — they match the physical arcade cabinet wiring.
 // To add local testing shortcuts, append extra keys to any array.
@@ -92,18 +96,18 @@ new Phaser.Game(config);
 function create() {
   const s = this;
   s.state = {
-    phase: 'menu', t: 0, time: 0, paused: false,
-    coins: 0, casts: 5, runMax: 0, best: null, catches: 0, combo: 0, won: false,
+    phase: 'menu', t: 0, paused: false,
+    coins: 0, casts: 5, runMax: 0, best: null, catches: 0, combo: 0,
     up: { d: 0, l: 0, c: 0 },
     scores: [], records: { d: 0, l: 0 },
     hook: { x: 250, y: WATER_Y + 40, depth: 0 },
     fish: [], jellies: [], eels: [],
     crab: null, crabCd: 8, crabWarn: 0,
-    spawnT: 0.4, jellyT: 2, eelT: 3, invuln: 0, lineHp: 2,
-    cast: null, bite: null, mg: null, catchT: -1, cut: false,
+    spawnT: 0.4, jellyT: 2, eelT: 3, invuln: 0, lineHp: 2, stun: 0,
+    cast: null, bite: null, mg: null, cut: false,
     newRecShown: false, poseTimer: 0, zmax: -1, bossT: 0,
-    menu: { i: 0 }, shop: { i: 0, cd: 0 }, entry: null,
-    blinkT: 2, blink: 0, lastAX: 0, lastAY: 0,
+    shop: { i: 0 }, entry: null,
+    blinkT: 2, blink: 0,
   };
 
   buildTextures(s);
@@ -130,7 +134,6 @@ function update(time, delta) {
   const s = this;
   const st = s.state;
   if (!st) return;
-  st.time = time;
   const dt = st.paused ? 0 : Math.min(delta, 50) / 1000;
   st.t += dt;
 
@@ -281,8 +284,7 @@ async function loadAll(s) {
       s.state.scores = r.value.filter((e) => e && typeof e.n === 'string' && typeof e.s === 'number').slice(0, 5);
     }
   } catch {}
-  refreshMenuTexts(s);
-  refreshBoardTexts(s);
+  refreshTexts(s);
   s.hud.recT.setText('RÉCORD ' + s.state.records.d + ' m');
 }
 
@@ -318,6 +320,7 @@ function texFromGraphics(s, key, w, h, draw) {
 function tintOf(str) {
   return parseInt(str.slice(1), 16);
 }
+const TY = tintOf(PAL.y), TR = tintOf(PAL.r), TB = tintOf(PAL.b);
 
 function buildTextures(s) {
   texFromGraphics(s, 'fishT', 48, 24, (g) => {
@@ -343,19 +346,19 @@ function buildTextures(s) {
     g.fillTriangle(9, 0, 5, 4, 9, 6);
   });
   texFromGraphics(s, 'coin', 14, 14, (g) => {
-    g.fillStyle(0xffd23f);
+    g.fillStyle(TY);
     g.fillCircle(7, 7, 6.5);
     g.fillStyle(0xdf9c11);
     g.fillCircle(7, 7, 3.5);
   });
   texFromGraphics(s, 'wing', 46, 92, (g) => {
-    g.fillStyle(tintOf(PAL.y));
+    g.fillStyle(TY);
     g.fillEllipse(23, 14, 24, 28);
-    g.fillStyle(tintOf(PAL.b));
+    g.fillStyle(TB);
     g.fillEllipse(23, 38, 19, 26);
     g.fillEllipse(12, 42, 12, 24);
     g.fillEllipse(34, 42, 12, 24);
-    g.fillStyle(tintOf(PAL.r));
+    g.fillStyle(TR);
     g.fillEllipse(23, 64, 15, 24);
     g.fillEllipse(14, 72, 9, 18);
     g.fillEllipse(32, 72, 9, 18);
@@ -427,7 +430,7 @@ function buildBackground(s) {
     c.add(s.add.ellipse(-18, 0, 44 * sc, 16 * sc, 0xffffff, 0.85));
     c.add(s.add.ellipse(6, -7 * sc, 34 * sc, 14 * sc, 0xffffff, 0.85));
     c.add(s.add.ellipse(22, 2, 26 * sc, 12 * sc, 0xffffff, 0.85));
-    s.tweens.add({ targets: c, x: cx + 24, duration: 7000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+    s.tweens.add({ targets: c, x: cx + 24, duration: 7000, yoyo: true, repeat: -1, ease: SB });
   }
 }
 
@@ -456,11 +459,12 @@ function waterTick(s, dt) {
   const g = s.wavesG;
   g.clear();
   const t = st.t;
+  const wy = (x) => WATER_Y + Math.sin(x * 0.02 + t * 1.6) * 3 + Math.sin(x * 0.045 - t * 2.2) * 2;
   g.fillStyle(0xdff6f9, 0.22);
   g.beginPath();
   g.moveTo(0, WATER_Y + 12);
   for (let x = 0; x <= W; x += 25) {
-    g.lineTo(x, WATER_Y + Math.sin(x * 0.02 + t * 1.6) * 3 + Math.sin(x * 0.045 - t * 2.2) * 2);
+    g.lineTo(x, wy(x));
   }
   g.lineTo(W, WATER_Y + 12);
   g.closePath();
@@ -469,7 +473,7 @@ function waterTick(s, dt) {
   g.beginPath();
   g.moveTo(0, WATER_Y + Math.sin(t * 1.6) * 3);
   for (let x = 0; x <= W; x += 25) {
-    g.lineTo(x, WATER_Y + Math.sin(x * 0.02 + t * 1.6) * 3 + Math.sin(x * 0.045 - t * 2.2) * 2);
+    g.lineTo(x, wy(x));
   }
   g.strokePath();
 
@@ -479,9 +483,9 @@ function waterTick(s, dt) {
   }
 
   const d = st.phase === 'sink' || st.phase === 'bite' || st.phase === 'mg' || st.phase === 'boss' ? st.hook.depth : 0;
-  s.overlay.setAlpha(Phaser.Math.Clamp(d / 900, 0, 1) * 0.72);
+  s.overlay.setAlpha(C(d / 900, 0, 1) * 0.72);
 
-  const rayA = Phaser.Math.Clamp(1 - d / 320, 0, 1) * 0.16;
+  const rayA = C(1 - d / 320, 0, 1) * 0.16;
   if (rayA > 0.01) {
     s.raysG.clear();
     for (let i = 0; i < 3; i++) {
@@ -493,7 +497,7 @@ function waterTick(s, dt) {
     s.raysG.clear();
   }
 
-  const snowA = Phaser.Math.Clamp((d - 320) / 450, 0, 0.32);
+  const snowA = C((d - 320) / 450, 0, 0.32);
   for (const p of s.snow) {
     p.alpha = snowA;
     if (snowA > 0) {
@@ -516,9 +520,9 @@ function buildDock(s) {
     c.add(s.add.rectangle(485 + i * 60, DOCK_Y + 13, 3, 16, 0x7c5228));
   }
   c.add(s.add.rectangle(762, DOCK_Y - 18, 3, 40, 0x7f5539));
-  c.add(s.add.rectangle(748, DOCK_Y - 34, 26, 6, 0xffd23f));
-  c.add(s.add.rectangle(748, DOCK_Y - 28, 26, 4, 0x2074d5));
-  c.add(s.add.rectangle(748, DOCK_Y - 24, 26, 4, 0xef4056));
+  c.add(s.add.rectangle(748, DOCK_Y - 34, 26, 6, TY));
+  c.add(s.add.rectangle(748, DOCK_Y - 28, 26, 4, TB));
+  c.add(s.add.rectangle(748, DOCK_Y - 24, 26, 4, TR));
   c.add(s.add.ellipse(588, DOCK_Y + 2, 56, 8, 0x2a1810, 0.25));
 }
 
@@ -541,7 +545,7 @@ function buildMacaw(s) {
   m.feathers = [];
   for (let i = 0; i < 3; i++) {
     const f = s.add.image(0, 0, 'feather').setOrigin(0.5, 0.06).setRotation(-0.3 + i * 0.3);
-    f.setTint([tintOf(PAL.y), tintOf(PAL.b), tintOf(PAL.r)][i]);
+    f.setTint([TY, TB, TR][i]);
     m.feathers.push(f);
     m.tailC.add(f);
   }
@@ -551,7 +555,7 @@ function buildMacaw(s) {
   m.root.add(s.add.rectangle(6, -4, 5, 13, 0x8d99ae));
 
   m.bodyC = s.add.container(0, -44);
-  m.bodyC.add(s.add.ellipse(0, 0, 48, 42, 0xffd23f));
+  m.bodyC.add(s.add.ellipse(0, 0, 48, 42, TY));
   m.bodyC.add(s.add.ellipse(-5, 9, 30, 22, 0xffe9a3));
 
   m.wingC = s.add.container(10, -10);
@@ -559,8 +563,8 @@ function buildMacaw(s) {
   m.bodyC.add(m.wingC);
 
   m.headC = s.add.container(-9, -38);
-  m.headC.add(s.add.circle(0, 0, 23, 0xffd23f));
-  const crestTs = [tintOf(PAL.r), tintOf(PAL.b), tintOf(PAL.y)];
+  m.headC.add(s.add.circle(0, 0, 23, TY));
+  const crestTs = [TR, TB, TY];
   for (let i = 0; i < 3; i++) {
     m.headC.add(
       s.add.image(2 - i * 5, -21, 'crest').setOrigin(0.5, 1).setRotation(-0.55 + i * 0.3).setTint(crestTs[i]).setScale(0.8 - i * 0.15),
@@ -619,7 +623,7 @@ function macawTick(s, dt) {
 
   let look = 0;
   if (st.phase === 'sink' || st.phase === 'mg' || st.phase === 'bite' || st.phase === 'boss') {
-    look = Phaser.Math.Clamp((st.hook.x - 588) / 1400, -0.2, 0.1);
+    look = C((st.hook.x - 588) / 1400, -0.2, 0.1);
   }
   m.headC.rotation += (p.head + look - m.headC.rotation) * k;
   m.pupil.x = -1.5 + look * 12;
@@ -646,19 +650,19 @@ function rodTipPos(s) {
 function buildLine(s) {
   s.lineG = s.add.graphics();
   s.hookS = s.add.image(-100, -100, 'hookT').setDepth(5).setVisible(false);
-  s.bead = s.add.circle(-100, -100, 3.5, 0xef4056).setDepth(5).setVisible(false);
+  s.bead = s.add.circle(-100, -100, 3.5, TR).setDepth(5).setVisible(false);
   s.state.lineOn = false;
 
   s.crabS = s.add.image(-100, -100, 'crabT').setDepth(5).setVisible(false);
   s.crabBarBg = s.add.rectangle(-100, -100, 46, 5, 0x0a1626, 0.8).setDepth(5).setVisible(false);
-  s.crabBar = s.add.rectangle(-100, -100, 42, 3, 0xffd23f).setDepth(5).setVisible(false);
+  s.crabBar = s.add.rectangle(-100, -100, 42, 3, TY).setDepth(5).setVisible(false);
   s.warnT = T(s, -100, -100, '!', 26, PAL.r).setDepth(6).setVisible(false);
-  s.hookHint = s.add.circle(-100, -100, 21, 0, 0).setStrokeStyle(2, tintOf(PAL.y)).setDepth(6).setVisible(false);
+  s.hookHint = s.add.circle(-100, -100, 21, 0, 0).setStrokeStyle(2, TY).setDepth(6).setVisible(false);
 }
 
 function depthY(d) {
   const top = WATER_Y + 36;
-  return top + (H - 62 - top) * Math.pow(Phaser.Math.Clamp(d / 900, 0, 1), 0.8);
+  return top + (H - 62 - top) * Math.pow(C(d / 900, 0, 1), 0.8);
 }
 
 function buildDepthMap(s) {
@@ -714,7 +718,7 @@ function buildHud(s) {
   s.hud.depthT = T(s, W - 20, 22, '', 24, PAL.w, 1);
   s.hud.recT = T(s, W - 20, 46, '', 11, PAL.dim, 1);
   s.hud.runT = T(s, 326, 22, '', 11, PAL.dim);
-  s.hud.trail = [0, 1, 2].map((i) => s.add.circle(363 + i * 15, 22, 4, 0x38404d).setStrokeStyle(1, tintOf(PAL.y), 0.55));
+  s.hud.trail = [0, 1, 2, 3].map((i) => s.add.circle(363 + i * 15, 22, 4, 0x38404d).setStrokeStyle(1, TY, 0.55));
   s.hud.lineT = T(s, 350, 43, '', 11, PAL.w);
   s.hud.promptT = T(s, W / 2, H - 24, '', 15, PAL.dim).setAlpha(0);
   s.hudC.add([s.hud.coinI, s.hud.coinT, ...s.hud.hooks, s.hud.depthT, s.hud.recT, s.hud.runT, ...s.hud.trail, s.hud.lineT, s.hud.promptT]);
@@ -726,7 +730,7 @@ function updateCoinsHud(s) {
   s.hud.coinT.setText('' + st.coins);
   s.tweens.killTweensOf(s.hud.coinT);
   s.hud.coinT.setScale(1.35);
-  s.tweens.add({ targets: s.hud.coinT, scale: 1, duration: 220, ease: 'Back.easeOut' });
+  s.tweens.add({ targets: s.hud.coinT, scale: 1, duration: 220, ease: BO });
 }
 
 function updateHooksHud(s) {
@@ -739,11 +743,11 @@ function updateHooksHud(s) {
 
 function updateRunHud(s) {
   const st = s.state;
-  s.hud.runT.setText(st.catches >= 3 ? 'KRAKEN LOCALIZADO' : 'RASTRO' + (st.combo > 1 ? ' x' + st.combo : ''));
-  s.hud.runT.setColor(st.catches >= 3 ? PAL.y : PAL.dim);
-  s.hud.trail.forEach((p, i) => p.setVisible(st.catches < 3).setFillStyle(i < st.catches ? tintOf(PAL.y) : 0x38404d));
-  s.bossLabel.setText(st.catches >= 3 ? 'KRAKEN' : '???').setAlpha(st.catches >= 3 ? 1 : 0.45);
-  s.bossMark.setAlpha(st.catches >= 3 ? 1 : 0.25);
+  s.hud.runT.setText(st.catches >= 4 ? 'KRAKEN LOCALIZADO' : 'RASTRO' + (st.combo > 1 ? ' x' + st.combo : ''));
+  s.hud.runT.setColor(st.catches >= 4 ? PAL.y : PAL.dim);
+  s.hud.trail.forEach((p, i) => p.setVisible(st.catches < 4).setFillStyle(i < st.catches ? TY : 0x38404d));
+  s.bossLabel.setText(st.catches >= 4 ? 'KRAKEN' : '???').setAlpha(st.catches >= 4 ? 1 : 0.45);
+  s.bossMark.setAlpha(st.catches >= 4 ? 1 : 0.25);
   s.hud.lineT.setText(st.lineOn ? 'LÍNEA ' + '◆'.repeat(st.lineHp) : '');
 }
 
@@ -755,10 +759,10 @@ function popText(s, x, y, str, color, size, hold) {
   const t = T(s, x, y, str, size || 22, color || PAL.w).setDepth(12).setStroke('#071526', 2);
   t.setScale(0.4);
   s.tweens.add({
-    targets: t, scale: 1, duration: 110, ease: 'Back.easeOut',
+    targets: t, scale: 1, duration: 110, ease: BO,
     onComplete: () => {
       s.tweens.add({
-        targets: t, y: y - 26, alpha: 0, duration: 850, delay: hold || 240, ease: 'Cubic.easeOut',
+        targets: t, y: y - 26, alpha: 0, duration: 850, delay: hold || 240, ease: EO,
         onComplete: () => t.destroy(),
       });
     },
@@ -768,28 +772,28 @@ function popText(s, x, y, str, color, size, hold) {
 function splashFX(s, x, big) {
   const n = big ? 10 : 6;
   for (let i = 0; i < n; i++) {
-    const p = s.add.circle(x + Phaser.Math.Between(-6, 6), WATER_Y + 4, Phaser.Math.Between(2, 4), 0xdff6f9, 0.9).setDepth(8);
+    const p = s.add.circle(x + B(-6, 6), WATER_Y + 4, B(2, 4), 0xdff6f9, 0.9).setDepth(8);
     s.tweens.add({
       targets: p,
-      x: p.x + Phaser.Math.Between(-34, 34),
-      y: WATER_Y - Phaser.Math.Between(8, big ? 44 : 26),
-      alpha: 0, duration: Phaser.Math.Between(280, 460), ease: 'Cubic.easeOut',
+      x: p.x + B(-34, 34),
+      y: WATER_Y - B(8, big ? 44 : 26),
+      alpha: 0, duration: B(280, 460), ease: EO,
       onComplete: () => p.destroy(),
     });
   }
   const ring = s.add.ellipse(x, WATER_Y + 2, 20, 8, 0xffffff, 0).setDepth(8).setStrokeStyle(2, 0xdff6f9, 0.9);
   s.tweens.add({
-    targets: ring, scaleX: big ? 5 : 3.2, scaleY: 2.2, alpha: 0, duration: 420, ease: 'Cubic.easeOut',
+    targets: ring, scaleX: big ? 5 : 3.2, scaleY: 2.2, alpha: 0, duration: 420, ease: EO,
     onComplete: () => ring.destroy(),
   });
 }
 
 function coinsFly(s, x, y, total) {
-  const n = Phaser.Math.Clamp(3 + Math.floor(total / 40), 3, 9);
+  const n = C(3 + Math.floor(total / 40), 3, 9);
   for (let i = 0; i < n; i++) {
-    const c = s.add.image(x + Phaser.Math.Between(-20, 20), y + Phaser.Math.Between(-14, 14), 'coin').setDepth(12);
+    const c = s.add.image(x + B(-20, 20), y + B(-14, 14), 'coin').setDepth(12);
     s.tweens.add({
-      targets: c, x: 30, y: 22, scale: 0.7, duration: 480, delay: 120 + i * 55, ease: 'Cubic.easeIn',
+      targets: c, x: 30, y: 22, scale: 0.7, duration: 480, delay: 120 + i * 55, ease: EI,
       onComplete: () => { c.destroy(); if (i === n - 1) { sfx(s, 'coin'); updateCoinsHud(s); } },
     });
   }
@@ -799,10 +803,10 @@ function burstFX(s, x, y, color, n, spread) {
   for (let i = 0; i < n; i++) {
     const p = s.add.rectangle(x, y, 4, 4, color, 1).setDepth(12);
     const a = Math.random() * Math.PI * 2;
-    const d = Phaser.Math.Between(18, spread || 44);
+    const d = B(18, spread || 44);
     s.tweens.add({
-      targets: p, x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, alpha: 0, angle: Phaser.Math.Between(-90, 90),
-      duration: Phaser.Math.Between(240, 420), onComplete: () => p.destroy(),
+      targets: p, x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, alpha: 0, angle: B(-90, 90),
+      duration: B(240, 420), onComplete: () => p.destroy(),
     });
   }
 }
@@ -811,7 +815,7 @@ function spawnFish(s) {
   const st = s.state;
   const d = st.hook.depth;
   const pool = SPECIES.filter((f) => f[1] <= d + 40);
-  const ws = pool.map((f) => (f[2] >= 45 ? 1 + st.up.l * 0.45 : 1) * f[6]);
+  const ws = pool.map((f) => f[6] * (f[2] >= 300 ? (1 + st.up.l * 1.1) : f[2] >= 45 ? (1 + st.up.l * 0.5) : 1));
   let tw = 0;
   for (const w of ws) tw += w;
   let r = Math.random() * tw;
@@ -821,20 +825,31 @@ function spawnFish(s) {
     if (r <= 0) { pick = pool[i]; break; }
   }
   const dir = Math.random() < 0.5 ? 1 : -1;
-  const fd = Phaser.Math.Clamp(d + Phaser.Math.Between(-65, 65), 18, 790);
+  const fd = C(d + B(-65, 65), 18, 790);
   const y = depthY(fd);
   const x = dir > 0 ? -40 : W + 40;
+  const tc = tintOf(pick[3]);
   const sc = pick[4];
-  const body = s.add.image(0, 0, 'fishT').setFlipX(dir < 0).setTint(tintOf(pick[3])).setScale(sc);
+  const body = s.add.image(0, 0, 'fishT').setFlipX(dir < 0).setTint(tc).setScale(sc);
   const eye = s.add.image(-13 * sc * (dir < 0 ? -1 : 1), -3 * sc, 'fishEye').setScale(sc);
   const c = s.add.container(x, y, [body, eye]).setDepth(4);
-  const glow = pick[2] >= 300 ? s.add.circle(0, 0, 26 * sc, 0xffe28a, 0.16).setDepth(3) : null;
+  const leg = pick[2] >= 300;
+  const shiny = Math.random() < 0.1 + st.up.l * 0.04;
+  const glow = leg ? s.add.container(0, 0, [
+    s.add.circle(0, 0, 34 * sc, 0xffe28a, 0.18),
+    s.add.circle(0, 0, 16 * sc, 0xffffff, 0.32),
+  ]).setDepth(3) : shiny ? s.add.container(0, 0, [
+    s.add.circle(0, 0, 24 * sc, 0xffffff, 0.22),
+    s.add.circle(0, 0, 11 * sc, 0xfffae0, 0.5),
+  ]).setDepth(3) : null;
+  const fval = Math.round(pick[2] * (shiny ? (leg ? 2 : 1.5) : 1));
   const fish = {
-    c, body, glow, d: fd, sp: pick[5], dir, val: pick[2], name: pick[0],
-    r: 13 * sc + 6, seed: Math.random() * 10, frozen: false, leg: pick[2] >= 300,
+    c, body, glow, d: fd, sp: pick[5], dir, val: fval, name: shiny ? pick[0] + ' ✦' : pick[0], tint: tc,
+    r: 13 * sc + 6, seed: Math.random() * 10, frozen: false, leg, shiny,
   };
   if (glow) {
-    s.tweens.add({ targets: glow, alpha: { from: 0.1, to: 0.3 }, duration: 600, yoyo: true, repeat: -1 });
+    s.tweens.add({ targets: glow, alpha: { from: 0.12, to: 0.4 }, duration: 560, yoyo: true, repeat: -1 });
+    s.tweens.add({ targets: glow, scale: { from: 0.92, to: 1.08 }, duration: 760, yoyo: true, repeat: -1, ease: SB });
   }
   st.fish.push(fish);
 }
@@ -869,11 +884,11 @@ function destroyFish(s, i) {
 function spawnJelly(s) {
   const st = s.state;
   const fromLeft = Math.random() < 0.5;
-  const d = Phaser.Math.Clamp(st.hook.depth + Phaser.Math.Between(-55, 55), 300, 790);
+  const d = C(st.hook.depth + B(-55, 55), 300, 790);
   const c = s.add.container(fromLeft ? -30 : W + 30, depthY(d))
     .setDepth(4)
     .add(s.add.image(0, 0, 'jellyT'));
-  s.tweens.add({ targets: c, scaleY: 1.15, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+  s.tweens.add({ targets: c, scaleY: 1.15, duration: 700, yoyo: true, repeat: -1, ease: SB });
   st.jellies.push({ c, d, seed: Math.random() * 10, dir: fromLeft ? 1 : -1 });
 }
 
@@ -886,8 +901,11 @@ function updateJellies(s, dt) {
     if (Math.hypot(j.c.x - st.hook.x, j.c.y - st.hook.y) < 24) {
       j.c.destroy();
       st.jellies.splice(i, 1);
-      damageLine(s, '¡MEDUSA!');
-      if (st.phase !== 'sink') return;
+      if (st.phase === 'sink') {
+        popText(s, st.hook.x, st.hook.y - 50, '¡MEDUSA!', PAL.r, 22);
+        lineCut(s);
+        return;
+      }
       continue;
     }
     if (j.c.x < -60 || j.c.x > W + 60) {
@@ -900,7 +918,7 @@ function updateJellies(s, dt) {
 function spawnEel(s) {
   const st = s.state;
   const left = Math.random() < 0.5;
-  const d = Phaser.Math.Clamp(st.hook.depth + Phaser.Math.Between(-45, 45), 500, 810);
+  const d = C(st.hook.depth + B(-45, 45), 500, 810);
   const glow = s.add.ellipse(0, 0, 86, 24, 0x7fffd4, 0.2);
   const body = s.add.image(0, 0, 'fishT').setScale(1.7, 0.55).setTint(0x7fffd4).setFlipX(!left);
   const c = s.add.container(left ? 54 : W - 54, depthY(d), [glow, body]).setDepth(5).setAlpha(0.25);
@@ -919,28 +937,20 @@ function updateEels(s, dt) {
       if (e.t <= 0) { e.dash = true; e.c.alpha = 1; sfx(s, 'zap'); }
     } else {
       e.c.x += e.dir * (470 + st.catches * 35) * dt;
-      if (Math.hypot(e.c.x - st.hook.x, e.c.y - st.hook.y) < 34) {
-        e.c.destroy();
-        st.eels.splice(i, 1);
-        damageLine(s, '¡ANGUILA!');
-        if (st.phase !== 'sink') return;
-        continue;
+      if (!e.hit && Math.hypot(e.c.x - st.hook.x, e.c.y - st.hook.y) < 34) {
+        e.hit = true;
+        if (st.phase === 'sink' && st.stun <= 0) {
+          st.stun = 1.3;
+          sfx(s, 'zap');
+          s.cameras.main.shake(180, 0.007);
+          popText(s, st.hook.x, st.hook.y - 40, '¡ANGUILA!', 0x7fffd4, 20);
+          const fl = s.add.rectangle(st.hook.x, st.hook.y, 30, 30, 0x7fffd4, 0.5).setDepth(5);
+          s.tweens.add({ targets: fl, scale: 2.4, alpha: 0, duration: 420, onComplete: () => fl.destroy() });
+        }
       }
     }
     if (e.c.x < -100 || e.c.x > W + 100) { e.c.destroy(); st.eels.splice(i, 1); }
   }
-}
-
-function damageLine(s, msg) {
-  const st = s.state;
-  if (st.invuln > 0 || st.phase !== 'sink') return;
-  st.lineHp--;
-  st.invuln = 1.25;
-  sfx(s, 'zap');
-  s.cameras.main.shake(150, 0.006);
-  popText(s, st.hook.x, st.hook.y - 30, msg, PAL.r, 19);
-  updateRunHud(s);
-  if (st.lineHp <= 0) lineCut(s);
 }
 
 function toDock(s, fresh) {
@@ -953,7 +963,6 @@ function toDock(s, fresh) {
     st.best = null;
     st.catches = 0;
     st.combo = 0;
-    st.won = false;
     st.zmax = -1;
     st.newRecShown = false;
   }
@@ -967,10 +976,10 @@ function toDock(s, fresh) {
   s.depthC.setVisible(false);
   macawState(s, 'IDLE');
   if (fresh) {
-    setPrompt(s, 'OBJETIVO: CAPTURA 3 PECES PARA LOCALIZAR AL KRAKEN');
-    popText(s, W / 2, 250, 'CAPTURA 3 PECES', PAL.y, 27, 2200);
+    setPrompt(s, 'OBJETIVO: CAPTURA 4 PECES PARA LOCALIZAR AL KRAKEN');
+    popText(s, W / 2, 250, 'CAPTURA 4 PECES', PAL.y, 27, 2200);
     s.time.delayedCall(2300, () => { if (st.phase === 'dock') setPrompt(s, 'B1 LANZAR · B2 TIENDA'); });
-  } else setPrompt(s, st.catches >= 3 ? 'B1 INICIAR CAZA FINAL · B2 TIENDA' : 'B1 LANZAR · B2 TIENDA');
+  } else setPrompt(s, st.catches >= 4 ? 'B1 INICIAR CAZA FINAL · B2 TIENDA' : 'B1 LANZAR · B2 TIENDA');
 }
 
 function dockUpdate(s) {
@@ -989,7 +998,7 @@ function startCast(s) {
   st.phase = 'cast';
   st.cast = { t: 0, launched: false, fly: 0 };
   st.hook = { x: -100, y: -100, depth: 0 };
-  st.lineHp = 2 + (st.up.d >= 2 ? 1 : 0);
+  st.lineHp = 2 + st.up.d;
   st.deepestCast = 0;
   st.atLimit = false;
   st.bossStarted = false;
@@ -1038,7 +1047,7 @@ function castUpdate(s, dt) {
       st.invuln = 0.8;
       s.depthC.setVisible(true);
       updateRunHud(s);
-      setPrompt(s, st.catches >= 3 ? 'BAJA A 820m · SOBREVIVE · KRAKEN' : 'ACÉRCATE AL PEZ · B1 ENGANCHAR');
+      setPrompt(s, st.catches >= 4 ? 'BAJA A 820m · SOBREVIVE · KRAKEN' : 'ACÉRCATE AL PEZ · B1 ENGANCHAR');
       macawState(s, 'FISHING');
     }
   }
@@ -1047,10 +1056,12 @@ function castUpdate(s, dt) {
 function sinkUpdate(s, dt) {
   const st = s.state;
   const hook = st.hook;
-  const maxD = st.catches >= 3 ? 900 : UPGRADES.d.max[st.up.d];
-  const ay = axisY(s);
+  const maxD = st.catches >= 4 ? 900 : UPGRADES.d.m[st.up.d];
+  const stund = st.stun > 0;
+  if (stund) st.stun -= dt;
+  const ay = stund ? 0 : axisY(s);
   const vy = ay > 0 ? 76 : ay < 0 ? -92 : 12;
-  hook.depth = Phaser.Math.Clamp(hook.depth + vy * (st.crab ? 0.45 : 1) * dt, 0, maxD);
+  hook.depth = C(hook.depth + vy * (st.crab ? 0.45 : 1) * dt, 0, maxD);
   st.deepestCast = Math.max(st.deepestCast, hook.depth);
   st.runMax = Math.max(st.runMax, Math.round(hook.depth));
   s.hud.depthT.setText(Math.round(hook.depth) + ' / ' + maxD + ' m');
@@ -1061,8 +1072,10 @@ function sinkUpdate(s, dt) {
     newDepthBanner(s);
   }
 
-  hook.x = Phaser.Math.Clamp(hook.x + axisX(s) * 265 * dt, 60, 505);
+  hook.x = C(hook.x + (stund ? 0 : axisX(s)) * 265 * dt, 60, 505);
   hook.y = depthY(hook.depth);
+  if (stund) s.hookS.setAlpha(0.35 + Math.abs(Math.sin(st.t * 30)) * 0.65).setTint(0x7fffd4);
+  else s.hookS.setAlpha(1).setTint(0xffffff);
 
   let zone = 0;
   for (let i = 1; i < ZONES.length; i++) if (hook.depth >= ZONES[i][0]) zone = i;
@@ -1071,7 +1084,7 @@ function sinkUpdate(s, dt) {
     if (zone > 0) { popText(s, W / 2, 208, ZONES[zone][1], ZONES[zone][2], 21); sfx(s, 'record'); }
   }
 
-  if (st.catches < 3) {
+  if (st.catches < 4) {
     st.spawnT -= dt;
     if (st.spawnT <= 0 && st.fish.length < 8) {
       spawnFish(s);
@@ -1115,7 +1128,7 @@ function sinkUpdate(s, dt) {
     s.warnT.setPosition(hook.x, hook.y - 30);
     if (st.crabWarn <= 0) {
       s.warnT.setVisible(false);
-      st.crab = { t: 3.2, sh: 0, px: hook.x };
+      st.crab = { t: 2.5, mx: 2.5, sh: 0, need: 280 + hook.depth * 0.12, px: hook.x };
       s.crabS.setVisible(true);
       popText(s, hook.x, hook.y - 44, '¡CANGREJO!', PAL.r, 16);
     }
@@ -1125,7 +1138,7 @@ function sinkUpdate(s, dt) {
     st.crab.t -= dt;
     st.crab.sh += Math.abs(hook.x - st.crab.px);
     st.crab.px = hook.x;
-    if (st.crab.sh >= 240) {
+    if (st.crab.sh >= st.crab.need) {
       crabOff(s);
     } else if (st.crab.t <= 0) {
       lineCut(s);
@@ -1147,7 +1160,7 @@ function sinkUpdate(s, dt) {
   if (aim >= 0) {
     const f = st.fish[aim];
     const ready = hit >= 0;
-    s.hookHint.setPosition(f.c.x, f.c.y).setScale((f.r + 12) / 21).setStrokeStyle(2, ready ? 0x70e000 : tintOf(PAL.y)).setVisible(true);
+    s.hookHint.setPosition(f.c.x, f.c.y).setScale((f.r + 12) / 21).setStrokeStyle(2, ready ? 0x70e000 : TY).setVisible(true);
     if (st.aim !== (ready ? 2 : 1)) setPrompt(s, ready ? '¡B1 AHORA!' : 'ACÉRCATE MÁS · B1 ENGANCHAR');
     st.aim = ready ? 2 : 1;
     if (hookPress) {
@@ -1159,28 +1172,28 @@ function sinkUpdate(s, dt) {
     }
   } else {
     s.hookHint.setVisible(false);
-    if (st.aim) setPrompt(s, st.catches >= 3 ? 'BAJA A 820m · SOBREVIVE · KRAKEN' : 'ACÉRCATE AL PEZ · B1 ENGANCHAR');
+    if (st.aim) setPrompt(s, st.catches >= 4 ? 'BAJA A 820m · SOBREVIVE · KRAKEN' : 'ACÉRCATE AL PEZ · B1 ENGANCHAR');
     st.aim = 0;
   }
 
   updateFishes(s, dt);
 
   if (Math.random() < dt * 1.6) {
-    const b = s.add.circle(hook.x + Phaser.Math.Between(-6, 6), hook.y, Phaser.Math.Between(1.5, 3), 0xcfeef7, 0.5).setDepth(5);
+    const b = s.add.circle(hook.x + B(-6, 6), hook.y, B(1.5, 3), 0xcfeef7, 0.5).setDepth(5);
     s.tweens.add({
-      targets: b, y: b.y - Phaser.Math.Between(30, 70), alpha: 0, duration: Phaser.Math.Between(700, 1200),
+      targets: b, y: b.y - B(30, 70), alpha: 0, duration: B(700, 1200),
       onComplete: () => b.destroy(),
     });
   }
 
-  if (st.catches >= 3 && hook.depth >= BOSS_D && !st.bossStarted) {
+  if (st.catches >= 4 && hook.depth >= BOSS_D && !st.bossStarted) {
     startBoss(s);
     return;
   }
 
   if (hook.depth >= maxD && !st.atLimit) {
     st.atLimit = true;
-    popText(s, W / 2, 240, st.catches >= 3 ? 'ALGO ENORME SE ACERCA...' : 'LÍMITE DE LA LÍNEA', st.catches >= 3 ? PAL.y : PAL.dim, 20);
+    popText(s, W / 2, 240, st.catches >= 4 ? 'ALGO ENORME SE ACERCA...' : 'LÍMITE DE LA LÍNEA', st.catches >= 4 ? PAL.y : PAL.dim, 20);
   }
   if (hook.depth < maxD - 8) st.atLimit = false;
   if (st.deepestCast > 18 && hook.depth <= 1 && ay < 0) {
@@ -1192,7 +1205,7 @@ function newDepthBanner(s) {
   const st = s.state;
   sfx(s, 'record');
   popText(s, W / 2, 250, '¡NUEVA PROFUNDIDAD!', PAL.y, 30);
-  burstFX(s, W / 2, 250, tintOf(PAL.y), 10, 70);
+  burstFX(s, W / 2, 250, TY, 10, 70);
   macawState(s, 'VICTORY');
   st.poseTimer = 1.2;
 }
@@ -1213,29 +1226,55 @@ function startBoss(s) {
   s.crabS.setVisible(false);
   s.crabBarBg.setVisible(false);
   s.crabBar.setVisible(false);
-  const glow = s.add.circle(W + 90, depthY(BOSS_D), 76, 0xffd700, 0.18).setDepth(3);
-  const body = s.add.image(0, 0, 'fishT').setScale(2.8, 2.35).setTint(0xffd700).setFlipX(true);
-  const eye = s.add.image(-36, -8, 'fishEye').setScale(1.7);
-  const c = s.add.container(W + 90, depthY(BOSS_D), [body, eye]).setDepth(5);
-  const f = { c, body, glow, d: BOSS_D, sp: 0, dir: -1, val: 1000, name: 'Kraken dorado', r: 58, seed: 0, frozen: true, leg: true, boss: true };
+  const cy = depthY(BOSS_D);
+  const aura = s.add.circle(W + 90, cy, 96, 0xffd700, 0.14).setDepth(3);
+  const tent = s.add.graphics().setDepth(4);
+  const body = s.add.ellipse(0, 0, 108, 76, 0x2e0a4a).setDepth(5);
+  const hood = s.add.ellipse(0, -8, 88, 58, 0x51158a).setDepth(5);
+  const hornL = s.add.triangle(-30, -28, 0, 0, 14, 0, 4, -20, 0x7a2da0).setDepth(5);
+  const hornR = s.add.triangle(30, -28, 0, 0, 14, 0, 10, -20, 0x7a2da0).setDepth(5).setAngle(28);
+  const eyeW = s.add.circle(-22, -6, 13, 0xffffff).setDepth(6);
+  const eyeG = s.add.circle(-21, -6, 8, 0xffd700).setDepth(6);
+  const eyeK = s.add.circle(-20, -6, 3.4, 0x0a0a0a).setDepth(6);
+  const c = s.add.container(W + 90, cy, [tent, body, hood, hornL, hornR, eyeW, eyeG, eyeK]).setDepth(5);
+  const f = { c, body, glow: aura, tent, d: BOSS_D, sp: 0, dir: -1, val: 1000, name: 'Kraken dorado', r: 58, seed: 0, frozen: true, leg: true, boss: true, tint: 0xffd700 };
   st.fish.push(f);
+  s.tweens.add({ targets: aura, alpha: { from: 0.08, to: 0.28 }, duration: 560, yoyo: true, repeat: -1 });
+  s.tweens.add({ targets: aura, scale: { from: 0.94, to: 1.1 }, duration: 900, yoyo: true, repeat: -1, ease: SB });
+  s.tweens.add({ targets: eyeG, scale: { from: 0.85, to: 1.15 }, duration: 480, yoyo: true, repeat: -1 });
   setPrompt(s, '¡KRAKEN DORADO!');
   sfx(s, 'legendary');
   s.cameras.main.shake(400, 0.008);
   popText(s, W / 2, 250, '¡KRAKEN DORADO!', PAL.y, 34, 1600);
-  s.tweens.add({ targets: [c, glow], x: hookBossX(st), duration: 1050, ease: 'Cubic.easeOut' });
+  s.tweens.add({ targets: c, x: hookBossX(st), duration: 1050, ease: EO });
 }
 
-function hookBossX(st) { return Phaser.Math.Clamp(st.hook.x + 92, 180, 500); }
+function hookBossX(st) { return C(st.hook.x + 92, 180, 500); }
 
 function bossUpdate(s, dt) {
   const st = s.state;
   st.bossT += dt;
   const f = st.fish[0];
   if (!f) return;
-  f.c.y = depthY(BOSS_D) + Math.sin(st.t * 3) * 12;
-  f.glow.y = f.c.y;
+  const by = depthY(BOSS_D) + Math.sin(st.t * 3) * 12;
+  f.c.y = by;
+  f.glow.setPosition(f.c.x, by);
   f.body.rotation = Math.sin(st.t * 5) * 0.06;
+  const g = f.tent;
+  g.clear();
+  g.lineStyle(6, 0x4a1670, 1);
+  for (let k = -3; k <= 3; k++) {
+    if (k === 0) continue;
+    const bx = k * 12, by2 = 24;
+    g.beginPath();
+    g.moveTo(bx, by2);
+    for (let j = 1; j <= 5; j++) {
+      const ty = by2 + j * 15;
+      const tx = bx + Math.sin(st.t * 5 + j * 0.8 + k) * (5 + j * 2);
+      g.lineTo(tx, ty);
+    }
+    g.strokePath();
+  }
   if (st.bossT > 1.35) startBite(s, 0);
 }
 
@@ -1269,7 +1308,7 @@ function crabOff(s) {
   const cr = s.crabS;
   sfx(s, 'shake');
   s.tweens.add({
-    targets: cr, x: cr.x + 90, y: cr.y + 60, angle: 160, alpha: 0, duration: 450, ease: 'Quad.easeIn',
+    targets: cr, x: cr.x + 90, y: cr.y + 60, angle: 160, alpha: 0, duration: 450, ease: QI,
     onComplete: () => { cr.setAlpha(1).setAngle(0).setVisible(false); },
   });
   popText(s, st.hook.x, st.hook.y - 40, '¡FUERA!', PAL.w, 15);
@@ -1320,7 +1359,7 @@ function reelUp(s, done) {
     },
   });
   s.tweens.add({
-    targets: st.hook, y: WATER_Y + 6, duration: 420, ease: 'Cubic.easeIn',
+    targets: st.hook, y: WATER_Y + 6, duration: 420, ease: EI,
     onComplete: () => {
       s.hookS.setVisible(false);
       s.bead.setVisible(false);
@@ -1340,7 +1379,7 @@ function failCatch(s) {
   popText(s, f.c.x, f.c.y - 24, '¡SE FUE!', PAL.r, 26);
   f.frozen = false;
   s.tweens.add({
-    targets: f.c, x: f.c.x + (f.dir > 0 ? 1 : -1) * 640, duration: 320, ease: 'Cubic.easeIn',
+    targets: f.c, x: f.c.x + (f.dir > 0 ? 1 : -1) * 640, duration: 320, ease: EI,
     onComplete: () => {
       if (f.glow) f.glow.destroy();
       f.c.destroy();
@@ -1358,7 +1397,7 @@ function caughtCatch(s) {
   st.phase = 'reel';
   const fc = f.c;
   s.tweens.add({
-    targets: st.hook, y: WATER_Y + 18, duration: 480, ease: 'Cubic.easeIn',
+    targets: st.hook, y: WATER_Y + 18, duration: 480, ease: EI,
     onUpdate: () => {
       fc.x = st.hook.x - 10 * f.dir;
       fc.y = st.hook.y - 6;
@@ -1383,7 +1422,7 @@ function caughtCatch(s) {
       if (!f.boss) clueFX(s);
       coinsFly(s, 500, DOCK_Y - 60, reward);
       s.tweens.add({
-        targets: fc, x: 512, y: DOCK_Y - 58, scale: 1.35, duration: 430, ease: 'Sine.easeOut',
+        targets: fc, x: 512, y: DOCK_Y - 58, scale: 1.35, duration: 430, ease: SO,
         onUpdate: () => { if (f.glow) f.glow.setPosition(fc.x, fc.y); },
         onComplete: () => {
           if (f.leg) {
@@ -1403,8 +1442,8 @@ function caughtCatch(s) {
 
 function clueFX(s) {
   const n = s.state.catches;
-  if (n < 3) {
-    popText(s, W / 2, 250, 'RASTRO DEL KRAKEN ' + n + '/3', PAL.y, 24, 1800);
+  if (n < 4) {
+    popText(s, W / 2, 250, 'RASTRO DEL KRAKEN ' + n + '/4', PAL.y, 24, 1800);
     sfx(s, 'record');
     return;
   }
@@ -1425,13 +1464,15 @@ function legendaryFX(s) {
   const dark = s.add.rectangle(W / 2, H / 2, W, H, 0x04070f, 0.5).setDepth(13);
   s.tweens.add({ targets: dark, alpha: 0, duration: 1600, onComplete: () => dark.destroy() });
   popText(s, W / 2, 240, '¡LEGENDARIO!', PAL.y, 40);
-  for (const [col, n] of [[tintOf(PAL.y), 12], [tintOf(PAL.b), 8], [tintOf(PAL.r), 8]]) {
+  for (const [col, n] of [[TY, 12], [TB, 8], [TR, 8]]) {
     burstFX(s, W / 2, 240, col, n, 110);
   }
 }
 
 function endCast(s, won) {
   const st = s.state;
+  const a = s.audio;
+  if (a) { a.mmode = 'trop'; a.mint = 190; }
   for (let i = st.fish.length - 1; i >= 0; i--) destroyFish(s, i);
   for (const j of st.jellies) j.c.destroy();
   for (const e of st.eels) e.c.destroy();
@@ -1456,7 +1497,6 @@ function endCast(s, won) {
   updateRunHud(s);
   macawState(s, 'IDLE');
   if (won === 'boss') {
-    st.won = true;
     st.phase = 'wait';
     s.time.delayedCall(550, () => overShow(s, true));
   } else if (st.casts <= 0) {
@@ -1464,7 +1504,7 @@ function endCast(s, won) {
     s.time.delayedCall(500, () => overShow(s, false));
   } else {
     st.phase = 'dock';
-    setPrompt(s, st.catches >= 3 ? 'B1 INICIAR CAZA FINAL · B2 TIENDA' : 'B1 LANZAR · B2 TIENDA');
+    setPrompt(s, st.catches >= 4 ? 'B1 INICIAR CAZA FINAL · B2 TIENDA' : 'B1 LANZAR · B2 TIENDA');
   }
 }
 
@@ -1481,10 +1521,10 @@ function hookTick(s, dt) {
     s.crabS.setPosition(cx, cy).setAngle(Math.sin(st.t * 20) * 8);
     s.crabBarBg.setPosition(st.hook.x, st.hook.y + 26).setVisible(true);
     s.crabBar.setVisible(true);
-    const fr = st.crab.t / 3.2;
+    const fr = st.crab.t / st.crab.mx;
     s.crabBar.setPosition(st.hook.x - 21 + 42 * (1 - fr) / 2, st.hook.y + 26);
     s.crabBar.setDisplaySize(42 * fr, 3);
-    s.crabBar.setFillStyle(fr < 0.35 ? tintOf(PAL.r) : tintOf(PAL.y));
+    s.crabBar.setFillStyle(fr < 0.35 ? TR : TY);
   } else if (st.crabWarn > 0 && st.lineOn) {
     s.warnT.setPosition(st.hook.x, st.hook.y - 30);
   }
@@ -1503,13 +1543,21 @@ function buildMinigameUi(s) {
   s.mgUI.progBg = s.add.rectangle(TX - 62, MID, 16, Y1 - Y0, 0x12233a, 0.9).setStrokeStyle(1, 0x3a5a7a);
   s.mgUI.progF = s.add.rectangle(TX - 62, Y1, 10, 10, 0x70e000).setOrigin(0.5, 1);
   s.mgUI.escBg = s.add.rectangle(TX + 62, MID, 16, Y1 - Y0, 0x12233a, 0.9).setStrokeStyle(1, 0x3a5a7a);
-  s.mgUI.escF = s.add.rectangle(TX + 62, Y0, 10, 10, tintOf(PAL.r)).setOrigin(0.5, 0);
+  s.mgUI.escF = s.add.rectangle(TX + 62, Y0, 10, 10, TR).setOrigin(0.5, 0);
   c.add([s.mgUI.progBg, s.mgUI.progF, s.mgUI.escBg, s.mgUI.escF]);
 
-  s.mgUI.zone = s.add.rectangle(TX, MID, 58, 90, 0x90e0a0, 0.3).setStrokeStyle(2, tintOf(PAL.y));
+  s.mgUI.zone = s.add.rectangle(TX, MID, 58, 90, 0x90e0a0, 0.3).setStrokeStyle(2, TY);
   s.mgUI.fishB = s.add.image(0, 0, 'fishT');
   s.mgUI.fishE = s.add.image(-12, -3, 'fishEye');
-  s.mgUI.fishI = s.add.container(TX, MID, [s.mgUI.fishB, s.mgUI.fishE]);
+  s.mgUI.krak = s.add.graphics();
+  s.mgUI.krak.fillStyle(0x51158a, 1); s.mgUI.krak.fillCircle(0, 0, 15);
+  s.mgUI.krak.fillStyle(0xffd700, 1); s.mgUI.krak.fillCircle(-5, -2, 5);
+  s.mgUI.krak.fillStyle(0x0a0a0a, 1); s.mgUI.krak.fillCircle(-4, -2, 2);
+  s.mgUI.krak.lineStyle(2.5, 0x4a1670, 1);
+  for (let t = -2; t <= 2; t++) { s.mgUI.krak.beginPath(); s.mgUI.krak.moveTo(t * 5, 11); s.mgUI.krak.lineTo(t * 5 + Math.sin(t) * 3, 25); s.mgUI.krak.strokePath(); }
+  s.mgUI.krak.setVisible(false);
+  s.mgUI.fishI = s.add.container(TX, MID, [s.mgUI.fishB, s.mgUI.fishE, s.mgUI.krak]);
+  s.mgUI.tent = s.add.graphics().setDepth(17).setVisible(false);
   c.add([s.mgUI.zone, s.mgUI.fishI]);
 }
 
@@ -1519,16 +1567,19 @@ function mgStart(s) {
   const v = f.val;
   const boss = !!f.boss;
   const heat = boss ? 1 : 1 + st.catches * 0.09;
-  const zone = (boss ? 58 : Phaser.Math.Clamp(46 + f.body.scaleX * 30, 52, 88) / heat) * (1 + 0.09 * st.up.c);
-  const zw = boss ? 64 : Phaser.Math.Clamp(35 + f.body.scaleX * 22, 46, 64);
+  const zone = (boss ? 58 : C(46 + f.body.scaleX * 30, 52, 88) / heat) * (1 + 0.09 * st.up.c);
+  const zw = boss ? 64 : C(35 + f.body.scaleX * 22, 46, 64);
   const sp = (boss ? 245 : Math.min(190 + v * 0.55, 420) * heat) * (1 - 0.13 * st.up.c);
   const er = (boss ? 0.39 : (0.36 + v * 0.0008) * heat) * (1 - 0.12 * st.up.c);
   const mid = (s.mgUI.y0 + s.mgUI.y1) / 2;
-  st.mg = { fy: mid, ftg: mid, ft: 0.3, fv: Phaser.Math.Between(-90, 90), seed: Math.random() * 8, py: mid, pv: 0, prog: 0, esc: boss ? 0.1 : 0.22, sp, zone, zw, er, lastOv: false, boss, stage: 0 };
-  const sc = boss ? 1.35 : Phaser.Math.Clamp(f.body.scaleX * 0.82, 0.58, 1.18);
-  const flip = f.body.flipX;
-  s.mgUI.fishB.setTint(f.body.tintTopLeft).setScale(sc).setFlipX(flip);
+  st.mg = { fy: mid, ftg: mid, ft: 0.3, fv: B(-90, 90), seed: Math.random() * 8, py: mid, pv: 0, prog: 0, esc: boss ? 0.1 : 0.22, sp, zone, zw, er, lastOv: false, boss, stage: 0, atk: 0, atkT: boss ? 4.5 : 0, slamT: 0 };
+  const sc = boss ? 1.35 : C(f.body.scaleX * 0.82, 0.58, 1.18);
+  const flip = f.boss || f.body.flipX;
+  s.mgUI.fishB.setTint(f.tint).setScale(sc).setFlipX(flip);
   s.mgUI.fishE.setScale(sc).setPosition((flip ? 13 : -13) * sc, -3 * sc);
+  s.mgUI.fishB.setVisible(!boss);
+  s.mgUI.fishE.setVisible(!boss);
+  s.mgUI.krak.setVisible(boss).setScale(boss ? 1.2 : 1);
   s.mgUI.zone.setDisplaySize(zw, zone);
   s.mgUI.title.setText(boss ? 'KRAKEN: 3 FASES DE FURIA' : '¡MANTÉN EL INDICADOR SOBRE EL PEZ!').setColor(boss ? PAL.y : PAL.w);
   s.mgUI.hint.setText(boss ? 'B1 SUBE · NO PIERDAS TENSIÓN' : 'TOCA B1 PARA SUBIR');
@@ -1539,6 +1590,7 @@ function mgStart(s) {
 
 function mgHide(s) {
   s.mgUI.c.setVisible(false);
+  s.mgUI.tent.setVisible(false);
 }
 
 function mgUpdate(s, dt) {
@@ -1547,7 +1599,7 @@ function mgUpdate(s, dt) {
   const ui = s.mgUI;
 
   if (once(s, ['P1_1', 'P2_1'])) {
-    m.pv = -345;
+    m.pv = m.atk > 0 ? 345 : -345;
     sfx(s, 'tap');
   }
   m.pv += 950 * dt;
@@ -1560,23 +1612,55 @@ function mgUpdate(s, dt) {
   m.ft -= dt;
   if (m.boss) {
     if (m.ft <= 0) {
-      m.ftg = Phaser.Math.Between(ui.y0 + 22, ui.y1 - 22);
+      m.ftg = B(ui.y0 + 22, ui.y1 - 22);
       m.ft = 0.48 + Math.random() * 0.8 - m.stage * 0.1;
     }
     const dy = m.ftg - m.fy;
     const rage = 1 + m.stage * 0.18;
-    m.fy += Phaser.Math.Clamp(dy, -m.sp * rage * dt, m.sp * rage * dt) + Math.sin(st.t * 10) * m.sp * 0.12 * dt;
+    m.fy += C(dy, -m.sp * rage * dt, m.sp * rage * dt) + Math.sin(st.t * 10) * m.sp * 0.12 * dt;
+    if (m.atk > 0) m.atk -= dt;
+    m.atkT -= dt;
+    if (m.atkT <= 0) {
+      m.atkT = 5 + Math.random() * 2.5 - m.stage * 0.25;
+      m.atk = 1.0;
+      m.py = ui.y1 - m.zone / 2 - 4;
+      m.pv = 0;
+      m.slamT = 0.45;
+      s.cameras.main.shake(220, 0.01);
+      sfx(s, 'cut');
+      popText(s, ui.tx, ui.y0 - 58, '¡TENTÁCULO!', PAL.r, 16);
+    }
+    if (m.slamT > 0) {
+      m.slamT -= dt;
+      const ph = 0.45 - Math.max(0, m.slamT);
+      let p = ph < 0.15 ? ph / 0.15 : 1 - (ph - 0.15) / 0.3;
+      p = C(p, 0, 1);
+      const ox = ui.tx + 120, oy = ui.y0 - 10, ex = ui.tx, ey = m.py;
+      const g = ui.tent;
+      g.clear().setVisible(true);
+      g.lineStyle(7, 0x4a1670, 1);
+      g.beginPath();
+      for (let i = 0; i <= 8; i++) {
+        const t = (i / 8) * p;
+        const wx = ox + (ex - ox) * t, wy = oy + (ey - oy) * t + Math.sin(st.t * 14 + t * 6) * 7 * t;
+        if (i === 0) g.moveTo(wx, wy); else g.lineTo(wx, wy);
+      }
+      g.strokePath();
+      const tx2 = ox + (ex - ox) * p, ty2 = oy + (ey - oy) * p + Math.sin(st.t * 14 + p * 6) * 7 * p;
+      g.fillStyle(0x5a1d8a, 1); g.fillCircle(tx2, ty2, 7);
+      g.fillStyle(0x7a2da0, 1); g.fillCircle(tx2, ty2, 3.5);
+    } else ui.tent.setVisible(false);
   } else {
     if (m.ft <= 0) {
-      m.fv += Phaser.Math.Between(-m.sp, m.sp);
+      m.fv += B(-m.sp, m.sp);
       m.ft = 0.18 + Math.random() * 0.38;
     }
     m.fv += Math.sin(st.t * 5.3 + m.seed) * m.sp * 0.9 * dt;
-    m.fv = Phaser.Math.Clamp(m.fv, -m.sp, m.sp);
+    m.fv = C(m.fv, -m.sp, m.sp);
     m.fy += m.fv * dt;
   }
   if (m.fy < ui.y0 + 14 || m.fy > ui.y1 - 14) {
-    m.fy = Phaser.Math.Clamp(m.fy, ui.y0 + 14, ui.y1 - 14);
+    m.fy = C(m.fy, ui.y0 + 14, ui.y1 - 14);
     m.fv *= -0.82;
   }
 
@@ -1585,8 +1669,10 @@ function mgUpdate(s, dt) {
     m.lastOv = ov;
     sfx(s, 'tick');
   }
-  m.prog = Phaser.Math.Clamp(m.prog + (ov ? (m.boss ? 0.22 : 0.23) : -0.1) * dt, 0, 1);
-  m.esc = Phaser.Math.Clamp(m.esc + (ov ? -0.5 : m.er) * dt, 0, 1);
+  m.prog = C(m.prog + (ov ? (m.boss ? 0.22 : 0.23) : -0.1) * dt, 0, 1);
+  m.esc = C(m.esc + (ov ? -0.5 : m.er) * dt, 0, 1);
+  const a = s.audio;
+  if (a && a.mmode) { a.mmode = 'tense'; a.mint = Math.max(60, 200 - m.esc * 130); }
 
   if (m.boss && m.prog >= (m.stage + 1) / 3 && m.stage < 2) {
     m.stage++;
@@ -1601,9 +1687,9 @@ function mgUpdate(s, dt) {
 
   ui.zone.setPosition(ui.tx, m.py);
   ui.zone.setFillStyle(ov ? 0xa8f0b2 : 0x6a8f7a, ov ? 0.42 : 0.28);
-  ui.fishI.setPosition(ui.tx, m.fy).setRotation(m.boss ? Math.sin(st.t * 8) * 0.15 : Phaser.Math.Clamp(m.fv / 650, -0.32, 0.32));
+  ui.fishI.setPosition(ui.tx, m.fy).setRotation(m.boss ? Math.sin(st.t * 8) * 0.15 : C(m.fv / 650, -0.32, 0.32));
   ui.progF.setDisplaySize(10, Math.max(4, (ui.y1 - ui.y0 - 4) * m.prog));
-  ui.progF.setFillStyle(m.prog > 0.8 ? tintOf(PAL.y) : 0x70e000);
+  ui.progF.setFillStyle(m.prog > 0.8 ? TY : 0x70e000);
   ui.escF.setDisplaySize(10, Math.max(4, (ui.y1 - ui.y0 - 4) * m.esc));
 
   s.mw.pose.rod = POSES.BITE.rod + (ov ? 0.1 + Math.sin(st.t * 18) * 0.09 : -0.04);
@@ -1616,7 +1702,7 @@ function buildShop(s) {
   const c = s.add.container(0, 0).setDepth(18).setVisible(false);
   s.shopUI = { c };
   c.add(s.add.rectangle(W / 2, H / 2, W, H, 0x0a1626, 0.78));
-  c.add(s.add.rectangle(W / 2, 320, 490, 350, 0x10233a, 0.97).setStrokeStyle(3, tintOf(PAL.b)));
+  c.add(s.add.rectangle(W / 2, 320, 490, 350, 0x10233a, 0.97).setStrokeStyle(3, TB));
   c.add(T(s, W / 2, 168, 'TIENDA', 30, PAL.y));
   s.shopUI.coinsT = T(s, W / 2, 202, '', 16, PAL.w);
   c.add(s.shopUI.coinsT);
@@ -1627,9 +1713,9 @@ function buildShop(s) {
     const y = 254 + i * 68;
     const u = UPGRADES[keys[i]];
     const row = {};
-    row.selR = s.add.rectangle(W / 2, y, 440, 58, 0xffffff, 0.04).setStrokeStyle(2, tintOf(PAL.r)).setVisible(false);
-    row.nameT = T(s, W / 2 - 206, y - 8, u.name, 17, PAL.w, 0);
-    row.descT = T(s, W / 2 - 206, y + 12, u.desc, 11, PAL.dim, 0);
+    row.selR = s.add.rectangle(W / 2, y, 440, 58, 0xffffff, 0.04).setStrokeStyle(2, TR).setVisible(false);
+    row.nameT = T(s, W / 2 - 206, y - 8, u.n, 17, PAL.w, 0);
+    row.descT = T(s, W / 2 - 206, y + 12, u.d, 11, PAL.dim, 0);
     row.pips = [];
     for (let j = 0; j < 3; j++) {
       const p = s.add.rectangle(W / 2 + 96 + j * 22, y, 15, 11, 0x38404d);
@@ -1650,8 +1736,8 @@ function shopRefresh(s) {
     const row = s.shopUI.rows[i];
     const lvl = st.up[k];
     row.selR.setVisible(st.shop.i === i);
-    row.pips.forEach((p, j) => p.setFillStyle(j < lvl ? tintOf(PAL.y) : 0x38404d));
-    row.priceT.setText(lvl >= 3 ? 'MÁX' : '' + UPGRADES[k].cost[lvl]);
+    row.pips.forEach((p, j) => p.setFillStyle(j < lvl ? TY : 0x38404d));
+    row.priceT.setText(lvl >= 3 ? 'MÁX' : '' + UPGRADES[k].c[lvl]);
     row.priceT.setColor(lvl >= 3 ? PAL.dim : PAL.y);
   });
 }
@@ -1682,13 +1768,13 @@ function shopUpdate(s) {
     const k = keys[st.shop.i];
     const lvl = st.up[k];
     if (lvl >= 3) { sfx(s, 'click'); return; }
-    const cost = UPGRADES[k].cost[lvl];
+    const cost = UPGRADES[k].c[lvl];
     const row = s.shopUI.rows[st.shop.i];
     if (st.coins >= cost) {
       st.coins -= cost;
       st.up[k] = lvl + 1;
       sfx(s, 'buy');
-      burstFX(s, W / 2 + 190, 254 + st.shop.i * 68, tintOf(PAL.y), 7, 40);
+      burstFX(s, W / 2 + 190, 254 + st.shop.i * 68, TY, 7, 40);
       popText(s, W / 2, 254 + st.shop.i * 68 - 30, '¡NIVEL ' + (lvl + 1) + '!', PAL.y, 18);
       macawState(s, 'BUY');
       st.poseTimer = 0.9;
@@ -1707,7 +1793,7 @@ function shopUpdate(s) {
 function buildMenu(s) {
   const c = s.add.container(0, 0).setDepth(15).setVisible(false);
   s.menuC = c;
-  c.add(T(s, 252, 72, 'HOOK', 100, PAL.y).setStroke('#13293d', 10));
+  c.add(T(s, 252, 72, "PESCAO'", 100, PAL.y).setStroke('#13293d', 10));
   c.add(T(s, 252, 138, 'L A   G U A C A M A Y A   P E S C A D O R A', 13, PAL.w).setStroke('#13293d', 3));
   let x = 163;
   for (const [col, wd] of [[PAL.y, 74], [PAL.b, 48], [PAL.r, 48]]) {
@@ -1719,32 +1805,24 @@ function buildMenu(s) {
   const pressT = T(s, 252, 230, 'PULSA START', 20, PAL.w);
   c.add(pressT);
   s.tweens.add({ targets: pressT, alpha: { from: 0.2, to: 1 }, duration: 550, yoyo: true, repeat: -1 });
-  c.add(T(s, 252, 266, '3 PECES → LOCALIZA AL KRAKEN → VENCE', 12, PAL.y).setStroke('#13293d', 2));
+  c.add(T(s, 252, 266, '4 PECES → LOCALIZA AL KRAKEN → VENCE', 12, PAL.y).setStroke('#13293d', 2));
   c.add(T(s, 252, 292, 'MEJORES CAPTURAS', 13, PAL.y));
   s.menuList = T(s, 252, 316, '', 14, PAL.w, 0.5).setOrigin(0.5, 0);
   c.add(s.menuList);
   s.menuRec = T(s, 252, 442, '', 12, PAL.dim);
   c.add(s.menuRec);
+  c.add(T(s, 252, 462, '¡CANGREJOS CORTAN LA LÍNEA! AGÍTATE', 11, PAL.r));
   c.add(T(s, 252, 486, 'W/S PROFUNDIDAD · A/D MOVER · B1 CAPTURAR · B2 TIENDA', 11, PAL.dim));
 }
 
-function refreshMenuTexts(s) {
+function refreshTexts(s) {
   const st = s.state;
-  s.menuList.setText(
-    st.scores.length
-      ? st.scores.map((e, i) => (i + 1) + '. ' + e.n + '  ' + e.s).join('\n')
-      : 'AÚN NO HAY RÉCORDS',
-  );
+  const list = st.scores.length
+    ? st.scores.map((e, i) => (i + 1) + '. ' + e.n + '  ' + e.s).join('\n')
+    : 'AÚN NO HAY RÉCORDS';
+  s.menuList.setText(list);
+  s.boardList.setText(list);
   s.menuRec.setText('PROFUNDIDAD MÁX: ' + st.records.d + ' m   ·   LEGENDARIOS: ' + st.records.l);
-}
-
-function refreshBoardTexts(s) {
-  const st = s.state;
-  s.boardList.setText(
-    st.scores.length
-      ? st.scores.map((e, i) => (i + 1) + '. ' + e.n + '  ' + e.s).join('\n')
-      : 'AÚN NO HAY RÉCORDS',
-  );
 }
 
 function showMenu(s, show) {
@@ -1753,7 +1831,7 @@ function showMenu(s, show) {
     s.state.phase = 'menu';
     s.hudC.setVisible(false);
     macawState(s, 'IDLE');
-    refreshMenuTexts(s);
+    refreshTexts(s);
   }
 }
 
@@ -1768,7 +1846,7 @@ function buildGameOver(s) {
 
   s.entryTitle = T(s, W / 2, 250, '¡ENTRE LAS MEJORES! TUS INICIALES', 13, PAL.y);
   s.entryLetters = [];
-  s.entrySel = s.add.rectangle(W / 2 - 44, 300, 42, 56, 0xffffff, 0.06).setStrokeStyle(2, tintOf(PAL.y));
+  s.entrySel = s.add.rectangle(W / 2 - 44, 300, 42, 56, 0xffffff, 0.06).setStrokeStyle(2, TY);
   for (let i = 0; i < 3; i++) {
     const t = T(s, W / 2 - 44 + i * 44, 300, 'A', 38, PAL.w);
     s.entryLetters.push(t);
@@ -1793,7 +1871,7 @@ function overShow(s, victory) {
   const lines = [
     (victory ? 'VICTORIA · ' : '') + 'MONEDAS: ' + st.coins,
     st.best ? 'MEJOR CAPTURA: ' + st.best.name + ' +' + st.best.val : 'MEJOR CAPTURA: —',
-    'PROFUNDIDAD: ' + st.runMax + ' m' + (!victory && st.catches >= 3 ? ' · EL KRAKEN ESCAPÓ' : ''),
+    'PROFUNDIDAD: ' + st.runMax + ' m' + (!victory && st.catches >= 4 ? ' · EL KRAKEN ESCAPÓ' : ''),
   ];
   s.overStats.setText(lines.join('\n'));
 
@@ -1804,7 +1882,7 @@ function overShow(s, victory) {
   s.entrySel.setVisible(qualify);
   s.entryLetters.forEach((t) => t.setVisible(qualify));
   updateEntryLetters(s);
-  refreshBoardTexts(s);
+  refreshTexts(s);
   s.overC.setVisible(true);
   if (!qualify) sfx(s, victory ? 'legendary' : 'gameover');
 }
@@ -1838,8 +1916,7 @@ function overUpdate(s) {
       s.entryTitle.setVisible(false);
       s.entrySel.setVisible(false);
       s.entryLetters.forEach((t) => t.setVisible(false));
-      refreshBoardTexts(s);
-      refreshMenuTexts(s);
+      refreshTexts(s);
       sfx(s, 'buy');
     }
     return;
@@ -1875,7 +1952,7 @@ function ensureAudio(s) {
     out.gain.value = 0.5;
     out.connect(ctx.destination);
     const mus = ctx.createGain();
-    mus.gain.value = 0.3;
+    mus.gain.value = 0.75;
     mus.connect(out);
     s.audio = { ctx, out, mus };
   } catch { s.audio = null; }
@@ -1904,57 +1981,58 @@ function sfx(s, name) {
   const a = s.audio;
   if (!a) return;
   const O = a.out;
+  const tn = (t, f0, f1, d, v, dl) => tone(s, O, t, f0, f1, d, v, dl);
   try {
     switch (name) {
-      case 'click': tone(s, O, 'square', 900, 600, 0.05, 0.06); break;
-      case 'select': tone(s, O, 'square', 620, 1240, 0.1, 0.08); break;
-      case 'cast': tone(s, O, 'sawtooth', 180, 880, 0.2, 0.09); break;
+      case 'click': tn(SQ, 900, 600, 0.05, 0.06); break;
+      case 'select': tn(SQ, 620, 1240, 0.1, 0.08); break;
+      case 'cast': tn(SW, 180, 880, 0.2, 0.09); break;
       case 'splash':
-        tone(s, O, 'sawtooth', 420, 90, 0.3, 0.12);
-        tone(s, O, 'triangle', 300, 700, 0.12, 0.05, 0.03);
+        tn(SW, 420, 90, 0.3, 0.12);
+        tn(TL, 300, 700, 0.12, 0.05, 0.03);
         break;
       case 'bite':
-        tone(s, O, 'square', 880, 880, 0.07, 0.1);
-        tone(s, O, 'square', 660, 660, 0.08, 0.1, 0.09);
+        tn(SQ, 880, 880, 0.07, 0.1);
+        tn(SQ, 660, 660, 0.08, 0.1, 0.09);
         break;
-      case 'tap': tone(s, O, 'sine', 640, 560, 0.04, 0.05); break;
-      case 'tick': tone(s, O, 'sine', 1320, 1320, 0.035, 0.05); break;
-      case 'reel': tone(s, O, 'square', 1500, 1100, 0.03, 0.04); break;
+      case 'tap': tn(SI, 640, 560, 0.04, 0.05); break;
+      case 'tick': tn(SI, 1320, 1320, 0.035, 0.05); break;
+      case 'reel': tn(SQ, 1500, 1100, 0.03, 0.04); break;
       case 'coin':
-        tone(s, O, 'square', 988, 988, 0.06, 0.07);
-        tone(s, O, 'square', 1319, 1319, 0.09, 0.07, 0.06);
+        tn(SQ, 988, 988, 0.06, 0.07);
+        tn(SQ, 1319, 1319, 0.09, 0.07, 0.06);
         break;
       case 'catch':
-        [523, 659, 784, 1047].forEach((f, i) => tone(s, O, 'triangle', f, f, 0.1, 0.09, i * 0.08));
+        CN.forEach((f, i) => tn(TL, f, f, 0.1, 0.09, i * 0.08));
         break;
       case 'legendary':
-        [392, 523, 659, 784, 1047, 1319].forEach((f, i) => tone(s, O, 'triangle', f, f, 0.12, 0.1, i * 0.09));
-        tone(s, O, 'sine', 72, 40, 0.5, 0.18);
+        [392, 523, 659, 784, 1047, 1319].forEach((f, i) => tn(TL, f, f, 0.12, 0.1, i * 0.09));
+        tn(SI, 72, 40, 0.5, 0.18);
         break;
-      case 'fail': tone(s, O, 'sawtooth', 380, 110, 0.45, 0.11); break;
+      case 'fail': tn(SW, 380, 110, 0.45, 0.11); break;
       case 'cut':
-        tone(s, O, 'square', 1400, 300, 0.07, 0.14);
-        tone(s, O, 'square', 1200, 240, 0.07, 0.12, 0.05);
+        tn(SQ, 1400, 300, 0.07, 0.14);
+        tn(SQ, 1200, 240, 0.07, 0.12, 0.05);
         break;
-      case 'shake': tone(s, O, 'triangle', 480, 940, 0.08, 0.09); break;
+      case 'shake': tn(TL, 480, 940, 0.08, 0.09); break;
       case 'crab':
-        tone(s, O, 'square', 210, 190, 0.05, 0.1);
-        tone(s, O, 'square', 210, 190, 0.05, 0.1, 0.08);
+        tn(SQ, 210, 190, 0.05, 0.1);
+        tn(SQ, 210, 190, 0.05, 0.1, 0.08);
         break;
-      case 'eel': tone(s, O, 'sawtooth', 90, 420, 0.32, 0.07); break;
+      case 'eel': tn(SW, 90, 420, 0.32, 0.07); break;
       case 'zap':
-        tone(s, O, 'square', 1200, 90, 0.13, 0.12);
-        tone(s, O, 'sawtooth', 760, 180, 0.16, 0.07, 0.04);
+        tn(SQ, 1200, 90, 0.13, 0.12);
+        tn(SW, 760, 180, 0.16, 0.07, 0.04);
         break;
       case 'buy':
-        tone(s, O, 'square', 700, 700, 0.06, 0.08);
-        tone(s, O, 'square', 1050, 1050, 0.1, 0.08, 0.07);
+        tn(SQ, 700, 700, 0.06, 0.08);
+        tn(SQ, 1050, 1050, 0.1, 0.08, 0.07);
         break;
       case 'record':
-        [523, 659, 784, 1047].forEach((f, i) => tone(s, O, 'triangle', f, f, 0.11, 0.1, i * 0.1));
+        CN.forEach((f, i) => tn(TL, f, f, 0.11, 0.1, i * 0.1));
         break;
       case 'gameover':
-        [330, 262, 196].forEach((f, i) => tone(s, O, 'triangle', f, f, 0.22, 0.1, i * 0.24));
+        [330, 262, 196].forEach((f, i) => tn(TL, f, f, 0.22, 0.1, i * 0.24));
         break;
     }
   } catch {}
@@ -1965,73 +2043,48 @@ function startMusic(s) {
   const a = s.audio;
   if (!a || a.music) return;
   a.music = true;
+  a.mmode = 'trop';
+  a.mstep = 0;
+  a.mint = 190;
   try {
     const ctx = a.ctx;
-    const filt = ctx.createBiquadFilter();
-    filt.type = 'lowpass';
-    filt.frequency.value = 520;
-    filt.Q.value = 1.1;
-    const padG = ctx.createGain();
-    padG.gain.value = 0.05;
-    filt.connect(padG);
-    padG.connect(a.mus);
-    const lfo = ctx.createOscillator();
-    const lfoG = ctx.createGain();
-    lfo.frequency.value = 0.05;
-    lfoG.gain.value = 280;
-    lfo.connect(lfoG);
-    lfoG.connect(filt.frequency);
-    lfo.start();
-    for (const det of [-7, 7]) {
+    const pf = ctx.createBiquadFilter();
+    pf.type = 'lowpass'; pf.frequency.value = 720; pf.Q.value = 0.8;
+    const pg = ctx.createGain(); pg.gain.value = 0.06;
+    pf.connect(pg); pg.connect(a.mus);
+    for (const d of [-6, 6]) {
       const o = ctx.createOscillator();
-      o.type = 'sawtooth';
-      o.frequency.value = 110;
-      o.detune.value = det;
-      o.connect(filt);
-      o.start();
+      o.type = SW; o.frequency.value = 165; o.detune.value = d;
+      o.connect(pf); o.start();
     }
-
-    const dly = ctx.createDelay(1);
-    dly.delayTime.value = 0.42;
-    const fb = ctx.createGain();
-    fb.gain.value = 0.32;
-    dly.connect(fb);
-    fb.connect(dly);
-    dly.connect(a.mus);
-
-    const NOTES = [220, 262, 330, 392, 440, 524];
-    const mel = () => {
-      const f = NOTES[Math.floor(Math.random() * NOTES.length)];
-      const t = ctx.currentTime;
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = 'triangle';
-      o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.linearRampToValueAtTime(0.045, t + 0.03);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
-      o.connect(g);
-      g.connect(a.mus);
-      g.connect(dly);
-      o.start(t);
-      o.stop(t + 1);
-      s.time.delayedCall(1100 + Math.random() * 1100, mel);
+    const perc = [1, 0, 0, 1, 0, 1, 0, 1];
+    const bass = [131, 0, 0, 131, 98, 0, 110, 0];
+    const mel = [392, 440, 0, 523, 0, 440, 494, 392];
+    const harm = [0, 0, 587, 0, 659, 0, 0, 587];
+    const tBass = [49, 0, 49, 0, 41, 0, 49, 0];
+    const tMel = [0, 233, 0, 261, 0, 0, 311, 0];
+    const mk = (type, f0, f1, dur, vol) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(f0, ctx.currentTime);
+      if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(30, f1), ctx.currentTime + dur);
+      g.gain.setValueAtTime(vol, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+      o.connect(g); g.connect(a.mus);
+      o.start(); o.stop(ctx.currentTime + dur + 0.02);
     };
-    const bass = () => {
-      const t = ctx.currentTime;
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = 'sine';
-      o.frequency.value = 55;
-      g.gain.setValueAtTime(0.12, t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
-      o.connect(g);
-      g.connect(a.mus);
-      o.start(t);
-      o.stop(t + 0.65);
-      s.time.delayedCall(2600, bass);
+    const step = () => {
+      const i = a.mstep % 8;
+      const tense = a.mmode === 'tense';
+      const bn = tense ? tBass[i] : bass[i];
+      if (bn) mk(SI, bn, bn, 0.32, 0.24);
+      if (perc[i]) mk('square', 1900, 500, 0.05, 0.09);
+      const mn = tense ? tMel[i] : mel[i];
+      if (mn) mk(TL, mn, mn, 0.26, 0.16);
+      if (!tense && harm[i]) mk(TL, harm[i], harm[i], 0.3, 0.08);
+      a.mstep++;
+      s.time.delayedCall(a.mint, step);
     };
-    s.time.delayedCall(600, mel);
-    s.time.delayedCall(200, bass);
+    s.time.delayedCall(250, step);
   } catch {}
 }
