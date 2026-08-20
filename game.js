@@ -105,7 +105,7 @@ function create() {
     crab: null, crabCd: 8, crabWarn: 0,
     spawnT: 0.4, jellyT: 2, eelT: 3, invuln: 0, lineHp: 2, stun: 0,
     cast: null, bite: null, mg: null, cut: false,
-    newRecShown: false, poseTimer: 0, zmax: -1, bossT: 0,
+    newRecShown: false, poseTimer: 0, zmax: -1, bossT: 0, dockLock: true,
     shop: { i: 0 }, entry: null,
     blinkT: 2, blink: 0,
   };
@@ -206,13 +206,16 @@ function createControls(scene) {
     if (!arcadeCode) return;
     scene.controls.held[arcadeCode] = false;
   };
+  const onBlur = () => { scene.controls.held = Object.create(null); scene.controls.pressed = Object.create(null); };
 
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup', onKeyUp);
+  window.addEventListener('blur', onBlur);
 
   scene.events.once('shutdown', () => {
     window.removeEventListener('keydown', onKeyDown);
     window.removeEventListener('keyup', onKeyUp);
+    window.removeEventListener('blur', onBlur);
   });
 }
 
@@ -328,6 +331,8 @@ function buildTextures(s) {
     g.fillEllipse(22, 12, 34, 16);
     g.fillTriangle(36, 4, 47, 12, 36, 20);
     g.fillTriangle(15, 4, 22, 0, 26, 4);
+    g.lineStyle(1.5, 0x17324a, 0.9); g.strokeEllipse(22, 12, 34, 16);
+    g.lineBetween(36, 4, 47, 12); g.lineBetween(47, 12, 36, 20);
   });
   texFromGraphics(s, 'fishEye', 8, 8, (g) => {
     g.fillStyle(0xffffff);
@@ -355,17 +360,12 @@ function buildTextures(s) {
     g.fillStyle(TY);
     g.fillEllipse(23, 14, 24, 28);
     g.fillStyle(TB);
-    g.fillEllipse(23, 38, 19, 26);
-    g.fillEllipse(12, 42, 12, 24);
-    g.fillEllipse(34, 42, 12, 24);
+    g.fillEllipse(23, 39, 24, 30);
     g.fillStyle(TR);
-    g.fillEllipse(23, 64, 15, 24);
-    g.fillEllipse(14, 72, 9, 18);
-    g.fillEllipse(32, 72, 9, 18);
+    g.fillEllipse(23, 61, 16, 26);
   });
-  texFromGraphics(s, 'feather', 14, 64, (g) => {
-    g.fillStyle(0xffffff);
-    g.fillEllipse(7, 32, 13, 62);
+  texFromGraphics(s, 'tail', 30, 68, (g) => {
+    [TY, TB, TR].forEach((col, i) => { g.fillStyle(col); g.fillEllipse(5 + i * 10, 34, 9, 66); });
   });
   texFromGraphics(s, 'beak', 36, 24, (g) => {
     g.fillStyle(0xd9772f);
@@ -541,14 +541,8 @@ function buildMacaw(s) {
   const m = {};
   m.root = s.add.container(588, DOCK_Y).setDepth(9);
 
-  m.tailC = s.add.container(16, -26);
-  m.feathers = [];
-  for (let i = 0; i < 3; i++) {
-    const f = s.add.image(0, 0, 'feather').setOrigin(0.5, 0.06).setRotation(-0.3 + i * 0.3);
-    f.setTint([TY, TB, TR][i]);
-    m.feathers.push(f);
-    m.tailC.add(f);
-  }
+  m.tailC = s.add.container(10, -18);
+  m.tailC.add(s.add.image(0, 0, 'tail').setOrigin(0.5, 0.06));
   m.root.add(m.tailC);
 
   m.root.add(s.add.rectangle(-7, -6, 5, 13, 0x8d99ae));
@@ -629,10 +623,6 @@ function macawTick(s, dt) {
   m.pupil.x = -1.5 + look * 12;
 
   m.tailC.rotation = p.tail + Math.sin(t * 1.4) * 0.08 + (p.tailSp ? Math.sin(t * 13) * 0.12 * p.tailSp : 0);
-  for (let i = 0; i < 3; i++) {
-    const spread = p.tailSp ? Math.sin(t * 13 + i) * 0.22 * p.tailSp : 0;
-    m.feathers[i].rotation = -0.3 + i * 0.3 + spread;
-  }
 
   st.blinkT -= dt;
   if (st.blinkT <= 0) { st.blinkT = 2.2 + Math.random() * 2.8; st.blink = 0.13; }
@@ -834,7 +824,7 @@ function spawnFish(s) {
   const eye = s.add.image(-13 * sc * (dir < 0 ? -1 : 1), -3 * sc, 'fishEye').setScale(sc);
   const c = s.add.container(x, y, [body, eye]).setDepth(4);
   const leg = pick[2] >= 300;
-  const shiny = Math.random() < 0.1 + st.up.l * 0.04;
+  const shiny = Math.random() < 0.14 + st.up.l * 0.05;
   const glow = leg ? s.add.container(0, 0, [
     s.add.circle(0, 0, 34 * sc, 0xffe28a, 0.18),
     s.add.circle(0, 0, 16 * sc, 0xffffff, 0.32),
@@ -842,9 +832,9 @@ function spawnFish(s) {
     s.add.circle(0, 0, 24 * sc, 0xffffff, 0.22),
     s.add.circle(0, 0, 11 * sc, 0xfffae0, 0.5),
   ]).setDepth(3) : null;
-  const fval = Math.round(pick[2] * (shiny ? (leg ? 2 : 1.5) : 1));
+  const fval = shiny ? Math.round(pick[2] * 1.8 + 55) : pick[2];
   const fish = {
-    c, body, glow, d: fd, sp: pick[5], dir, val: fval, name: shiny ? pick[0] + ' ✦' : pick[0], tint: tc,
+    c, body, glow, d: fd, sp: pick[5] * (shiny ? 2.4 : 1), dir, val: fval, name: shiny ? pick[0] + ' ✦' : pick[0], tint: tc,
     r: 13 * sc + 6, seed: Math.random() * 10, frozen: false, leg, shiny,
   };
   if (glow) {
@@ -884,7 +874,7 @@ function destroyFish(s, i) {
 function spawnJelly(s) {
   const st = s.state;
   const fromLeft = Math.random() < 0.5;
-  const d = C(st.hook.depth + B(-55, 55), 300, 790);
+  const d = C(st.hook.depth + B(-55, 55), 60, 790);
   const c = s.add.container(fromLeft ? -30 : W + 30, depthY(d))
     .setDepth(4)
     .add(s.add.image(0, 0, 'jellyT'));
@@ -967,6 +957,7 @@ function toDock(s, fresh) {
     st.newRecShown = false;
   }
   st.phase = 'dock';
+  st.dockLock = true;
   st.hook.depth = 0;
   s.hudC.setVisible(true);
   updateCoinsHud(s);
@@ -983,6 +974,13 @@ function toDock(s, fresh) {
 }
 
 function dockUpdate(s) {
+  const st = s.state;
+  if (st.dockLock) {
+    if (isHeld(s, 'P1_1') || isHeld(s, 'P2_1') || isHeld(s, 'P1_2') || isHeld(s, 'P2_2')) return;
+    for (const k in s.controls.pressed) s.controls.pressed[k] = false;
+    st.dockLock = false;
+    return;
+  }
   if (once(s, ['P1_1', 'P2_1'])) {
     startCast(s);
   } else if (once(s, ['P1_2', 'P2_2'])) {
@@ -1040,9 +1038,9 @@ function castUpdate(s, dt) {
       st.hook.y = WATER_Y + 34;
       st.phase = 'sink';
       st.spawnT = 0.6;
-      st.jellyT = 1.4 + Math.random() * 1.8;
-      st.eelT = 1.8 + Math.random() * 2.2;
-      st.crabCd = 1.1 + Math.random() * 1.4;
+      st.jellyT = 0.45 + Math.random() * 0.55;
+      st.eelT = 0.65 + Math.random() * 0.55;
+      st.crabCd = 0.45 + Math.random() * 0.4;
       st.crab = null;
       st.invuln = 0.8;
       s.depthC.setVisible(true);
@@ -1060,7 +1058,7 @@ function sinkUpdate(s, dt) {
   const stund = st.stun > 0;
   if (stund) st.stun -= dt;
   const ay = stund ? 0 : axisY(s);
-  const vy = ay > 0 ? 76 : ay < 0 ? -92 : 12;
+  const vy = ay ? ay * 265 : 12;
   hook.depth = C(hook.depth + vy * (st.crab ? 0.45 : 1) * dt, 0, maxD);
   st.deepestCast = Math.max(st.deepestCast, hook.depth);
   st.runMax = Math.max(st.runMax, Math.round(hook.depth));
@@ -1092,11 +1090,11 @@ function sinkUpdate(s, dt) {
     }
   }
 
-  if (hook.depth >= 300) {
+  if (hook.depth >= 60) {
     st.jellyT -= dt;
-    if (st.jellyT <= 0 && st.jellies.length < 3) {
+    if (st.jellyT <= 0 && st.jellies.length < 4) {
       spawnJelly(s);
-      st.jellyT = (2.6 + Math.random() * 3 * Math.max(0.45, 1 - hook.depth / 1000)) / (1 + st.catches * 0.16);
+      st.jellyT = (1.5 + Math.random() * 1.7 * Math.max(0.45, 1 - hook.depth / 1000)) / (1 + st.catches * 0.16);
     }
     updateJellies(s, dt);
     if (st.phase !== 'sink') return;
@@ -1104,9 +1102,9 @@ function sinkUpdate(s, dt) {
 
   if (hook.depth >= 500) {
     st.eelT -= dt;
-    if (st.eelT <= 0 && st.eels.length < 2) {
+    if (st.eelT <= 0 && st.eels.length < 3) {
       spawnEel(s);
-      st.eelT = (3.4 + Math.random() * 3) / (1 + st.catches * 0.14);
+      st.eelT = (2 + Math.random() * 1.8) / (1 + st.catches * 0.14);
     }
     updateEels(s, dt);
     if (st.phase !== 'sink') return;
@@ -1116,7 +1114,7 @@ function sinkUpdate(s, dt) {
     st.crabCd -= dt * (0.6 + hook.depth / 700 + st.catches * 0.18);
     if (st.crabCd <= 0) {
       st.crabWarn = 0.85;
-      st.crabCd = 9 + Math.random() * 7;
+      st.crabCd = 5 + Math.random() * 3.5;
       sfx(s, 'crab');
       s.warnT.setPosition(hook.x, hook.y - 30).setVisible(true).setAlpha(1);
       s.tweens.add({ targets: s.warnT, alpha: 0.2, duration: 120, yoyo: true, repeat: 4 });
@@ -1237,15 +1235,15 @@ function startBoss(s) {
   const eyeG = s.add.circle(-21, -6, 8, 0xffd700).setDepth(6);
   const eyeK = s.add.circle(-20, -6, 3.4, 0x0a0a0a).setDepth(6);
   const c = s.add.container(W + 90, cy, [tent, body, hood, hornL, hornR, eyeW, eyeG, eyeK]).setDepth(5);
-  const f = { c, body, glow: aura, tent, d: BOSS_D, sp: 0, dir: -1, val: 1000, name: 'Kraken dorado', r: 58, seed: 0, frozen: true, leg: true, boss: true, tint: 0xffd700 };
+  const f = { c, body, glow: aura, tent, d: BOSS_D, sp: 0, dir: -1, val: 1000, name: 'Kraken legendario', r: 58, seed: 0, frozen: true, leg: true, boss: true, tint: 0xffd700 };
   st.fish.push(f);
   s.tweens.add({ targets: aura, alpha: { from: 0.08, to: 0.28 }, duration: 560, yoyo: true, repeat: -1 });
   s.tweens.add({ targets: aura, scale: { from: 0.94, to: 1.1 }, duration: 900, yoyo: true, repeat: -1, ease: SB });
   s.tweens.add({ targets: eyeG, scale: { from: 0.85, to: 1.15 }, duration: 480, yoyo: true, repeat: -1 });
-  setPrompt(s, '¡KRAKEN DORADO!');
+  setPrompt(s, '¡KRAKEN LEGENDARIO!');
   sfx(s, 'legendary');
   s.cameras.main.shake(400, 0.008);
-  popText(s, W / 2, 250, '¡KRAKEN DORADO!', PAL.y, 34, 1600);
+  popText(s, W / 2, 250, '¡KRAKEN LEGENDARIO!', PAL.y, 34, 1600);
   s.tweens.add({ targets: c, x: hookBossX(st), duration: 1050, ease: EO });
 }
 
@@ -1396,6 +1394,7 @@ function caughtCatch(s) {
   mgHide(s);
   st.phase = 'reel';
   const fc = f.c;
+  fc.setVisible(true).setAlpha(1); f.body.setVisible(true).setAlpha(1);
   s.tweens.add({
     targets: st.hook, y: WATER_Y + 18, duration: 480, ease: EI,
     onUpdate: () => {
@@ -1472,7 +1471,7 @@ function legendaryFX(s) {
 function endCast(s, won) {
   const st = s.state;
   const a = s.audio;
-  if (a) { a.mmode = 'trop'; a.mint = 190; }
+  if (a) { a.mmode = 'trop'; a.mint = 175; }
   for (let i = st.fish.length - 1; i >= 0; i--) destroyFish(s, i);
   for (const j of st.jellies) j.c.destroy();
   for (const e of st.eels) e.c.destroy();
@@ -1504,6 +1503,7 @@ function endCast(s, won) {
     s.time.delayedCall(500, () => overShow(s, false));
   } else {
     st.phase = 'dock';
+    st.dockLock = true;
     setPrompt(s, st.catches >= 4 ? 'B1 INICIAR CAZA FINAL · B2 TIENDA' : 'B1 LANZAR · B2 TIENDA');
   }
 }
@@ -1550,11 +1550,19 @@ function buildMinigameUi(s) {
   s.mgUI.fishB = s.add.image(0, 0, 'fishT');
   s.mgUI.fishE = s.add.image(-12, -3, 'fishEye');
   s.mgUI.krak = s.add.graphics();
-  s.mgUI.krak.fillStyle(0x51158a, 1); s.mgUI.krak.fillCircle(0, 0, 15);
-  s.mgUI.krak.fillStyle(0xffd700, 1); s.mgUI.krak.fillCircle(-5, -2, 5);
-  s.mgUI.krak.fillStyle(0x0a0a0a, 1); s.mgUI.krak.fillCircle(-4, -2, 2);
+  s.mgUI.krak.fillStyle(0x2e0a4a, 1); s.mgUI.krak.fillEllipse(0, 3, 42, 30);
+  s.mgUI.krak.fillStyle(0x51158a, 1); s.mgUI.krak.fillEllipse(0, -4, 34, 23);
+  s.mgUI.krak.fillStyle(0x7a2da0, 1);
+  s.mgUI.krak.fillTriangle(-14, -12, -8, -25, -3, -13); s.mgUI.krak.fillTriangle(8, -13, 15, -24, 17, -8);
+  s.mgUI.krak.fillStyle(0xffffff, 1); s.mgUI.krak.fillCircle(-8, -4, 6);
+  s.mgUI.krak.fillStyle(0xffd700, 1); s.mgUI.krak.fillCircle(-8, -4, 3.7);
+  s.mgUI.krak.fillStyle(0x0a0a0a, 1); s.mgUI.krak.fillCircle(-7.5, -4, 1.6);
   s.mgUI.krak.lineStyle(2.5, 0x4a1670, 1);
-  for (let t = -2; t <= 2; t++) { s.mgUI.krak.beginPath(); s.mgUI.krak.moveTo(t * 5, 11); s.mgUI.krak.lineTo(t * 5 + Math.sin(t) * 3, 25); s.mgUI.krak.strokePath(); }
+  for (let t = -2; t <= 2; t++) {
+    s.mgUI.krak.beginPath(); s.mgUI.krak.moveTo(t * 5, 11);
+    for (let j = 1; j <= 4; j++) s.mgUI.krak.lineTo(t * 5 + Math.sin(j * 1.1 + t) * (2 + j * 1.2), 11 + j * 4);
+    s.mgUI.krak.strokePath();
+  }
   s.mgUI.krak.setVisible(false);
   s.mgUI.fishI = s.add.container(TX, MID, [s.mgUI.fishB, s.mgUI.fishE, s.mgUI.krak]);
   s.mgUI.tent = s.add.graphics().setDepth(17).setVisible(false);
@@ -1567,12 +1575,12 @@ function mgStart(s) {
   const v = f.val;
   const boss = !!f.boss;
   const heat = boss ? 1 : 1 + st.catches * 0.09;
-  const zone = (boss ? 58 : C(46 + f.body.scaleX * 30, 52, 88) / heat) * (1 + 0.09 * st.up.c);
+  const zone = (boss ? 52 : C(46 + f.body.scaleX * 30, 52, 88) / heat) * (1 + 0.09 * st.up.c);
   const zw = boss ? 64 : C(35 + f.body.scaleX * 22, 46, 64);
-  const sp = (boss ? 245 : Math.min(190 + v * 0.55, 420) * heat) * (1 - 0.13 * st.up.c);
-  const er = (boss ? 0.39 : (0.36 + v * 0.0008) * heat) * (1 - 0.12 * st.up.c);
+  const sp = (boss ? 310 : Math.min(190 + v * 0.55, 420) * heat) * (1 - 0.13 * st.up.c);
+  const er = (boss ? 0.5 : (0.36 + v * 0.0008) * heat) * (1 - 0.12 * st.up.c);
   const mid = (s.mgUI.y0 + s.mgUI.y1) / 2;
-  st.mg = { fy: mid, ftg: mid, ft: 0.3, fv: B(-90, 90), seed: Math.random() * 8, py: mid, pv: 0, prog: 0, esc: boss ? 0.1 : 0.22, sp, zone, zw, er, lastOv: false, boss, stage: 0, atk: 0, atkT: boss ? 4.5 : 0, slamT: 0 };
+  st.mg = { fy: mid, ftg: mid, ft: 0.3, fv: B(-90, 90), seed: Math.random() * 8, py: mid, pv: 0, prog: 0, esc: boss ? 0.1 : 0.22, sp, zone, zw, er, lastOv: false, boss, stage: 0, atk: 0, atkT: boss ? 3.2 : 0, slamT: 0 };
   const sc = boss ? 1.35 : C(f.body.scaleX * 0.82, 0.58, 1.18);
   const flip = f.boss || f.body.flipX;
   s.mgUI.fishB.setTint(f.tint).setScale(sc).setFlipX(flip);
@@ -1581,9 +1589,10 @@ function mgStart(s) {
   s.mgUI.fishE.setVisible(!boss);
   s.mgUI.krak.setVisible(boss).setScale(boss ? 1.2 : 1);
   s.mgUI.zone.setDisplaySize(zw, zone);
-  s.mgUI.title.setText(boss ? 'KRAKEN: 3 FASES DE FURIA' : '¡MANTÉN EL INDICADOR SOBRE EL PEZ!').setColor(boss ? PAL.y : PAL.w);
+  s.mgUI.title.setText(boss ? 'KRAKEN LEGENDARIO · 3 FASES' : '¡MANTÉN EL INDICADOR SOBRE EL PEZ!').setColor(boss ? PAL.y : PAL.w);
   s.mgUI.hint.setText(boss ? 'B1 SUBE · NO PIERDAS TENSIÓN' : 'TOCA B1 PARA SUBIR');
   s.mgUI.c.setVisible(true);
+  if (s.audio) { s.audio.mmode = boss ? 'boss' : 'tense'; s.audio.mint = boss ? 92 : 118; }
   macawState(s, 'BITE');
   st.phase = 'mg';
 }
@@ -1591,6 +1600,7 @@ function mgStart(s) {
 function mgHide(s) {
   s.mgUI.c.setVisible(false);
   s.mgUI.tent.setVisible(false);
+  if (s.audio) { s.audio.mmode = 'trop'; s.audio.mint = 175; }
 }
 
 function mgUpdate(s, dt) {
@@ -1599,7 +1609,7 @@ function mgUpdate(s, dt) {
   const ui = s.mgUI;
 
   if (once(s, ['P1_1', 'P2_1'])) {
-    m.pv = m.atk > 0 ? 345 : -345;
+    m.pv = m.atk > 0 ? -190 : -345;
     sfx(s, 'tap');
   }
   m.pv += 950 * dt;
@@ -1613,17 +1623,17 @@ function mgUpdate(s, dt) {
   if (m.boss) {
     if (m.ft <= 0) {
       m.ftg = B(ui.y0 + 22, ui.y1 - 22);
-      m.ft = 0.48 + Math.random() * 0.8 - m.stage * 0.1;
+      m.ft = 0.4 + Math.random() * 0.65 - m.stage * 0.08;
     }
     const dy = m.ftg - m.fy;
-    const rage = 1 + m.stage * 0.18;
+    const rage = 1 + m.stage * 0.24;
     m.fy += C(dy, -m.sp * rage * dt, m.sp * rage * dt) + Math.sin(st.t * 10) * m.sp * 0.12 * dt;
     if (m.atk > 0) m.atk -= dt;
     m.atkT -= dt;
     if (m.atkT <= 0) {
-      m.atkT = 5 + Math.random() * 2.5 - m.stage * 0.25;
-      m.atk = 1.0;
-      m.py = ui.y1 - m.zone / 2 - 4;
+      m.atkT = 4.2 + Math.random() * 1.8 - m.stage * 0.3;
+      m.atk = 0.55;
+      m.py = Math.min(yMax, m.py + 90);
       m.pv = 0;
       m.slamT = 0.45;
       s.cameras.main.shake(220, 0.01);
@@ -1635,18 +1645,18 @@ function mgUpdate(s, dt) {
       const ph = 0.45 - Math.max(0, m.slamT);
       let p = ph < 0.15 ? ph / 0.15 : 1 - (ph - 0.15) / 0.3;
       p = C(p, 0, 1);
-      const ox = ui.tx + 120, oy = ui.y0 - 10, ex = ui.tx, ey = m.py;
+      const ox = ui.tx + 5, oy = m.fy + 12, ex = ui.tx, ey = m.py;
       const g = ui.tent;
       g.clear().setVisible(true);
       g.lineStyle(7, 0x4a1670, 1);
       g.beginPath();
       for (let i = 0; i <= 8; i++) {
         const t = (i / 8) * p;
-        const wx = ox + (ex - ox) * t, wy = oy + (ey - oy) * t + Math.sin(st.t * 14 + t * 6) * 7 * t;
+        const wx = ox + (ex - ox) * t + Math.sin(Math.PI * t) * 58, wy = oy + (ey - oy) * t + Math.sin(st.t * 14 + t * 6) * 7 * t;
         if (i === 0) g.moveTo(wx, wy); else g.lineTo(wx, wy);
       }
       g.strokePath();
-      const tx2 = ox + (ex - ox) * p, ty2 = oy + (ey - oy) * p + Math.sin(st.t * 14 + p * 6) * 7 * p;
+      const tx2 = ox + (ex - ox) * p + Math.sin(Math.PI * p) * 58, ty2 = oy + (ey - oy) * p + Math.sin(st.t * 14 + p * 6) * 7 * p;
       g.fillStyle(0x5a1d8a, 1); g.fillCircle(tx2, ty2, 7);
       g.fillStyle(0x7a2da0, 1); g.fillCircle(tx2, ty2, 3.5);
     } else ui.tent.setVisible(false);
@@ -1669,14 +1679,11 @@ function mgUpdate(s, dt) {
     m.lastOv = ov;
     sfx(s, 'tick');
   }
-  m.prog = C(m.prog + (ov ? (m.boss ? 0.22 : 0.23) : -0.1) * dt, 0, 1);
+  m.prog = C(m.prog + (ov ? (m.boss ? 0.18 : 0.23) : -0.1) * dt, 0, 1);
   m.esc = C(m.esc + (ov ? -0.5 : m.er) * dt, 0, 1);
-  const a = s.audio;
-  if (a && a.mmode) { a.mmode = 'tense'; a.mint = Math.max(60, 200 - m.esc * 130); }
-
   if (m.boss && m.prog >= (m.stage + 1) / 3 && m.stage < 2) {
     m.stage++;
-    m.zone *= 0.9;
+    m.zone *= 0.86;
     ui.zone.setDisplaySize(m.zw, m.zone);
     m.ftg = m.fy < (ui.y0 + ui.y1) / 2 ? ui.y1 - 20 : ui.y0 + 20;
     m.ft = 0.18;
@@ -1755,6 +1762,7 @@ function shopOpen(s) {
 function shopClose(s) {
   s.shopUI.c.setVisible(false);
   s.state.phase = 'dock';
+  s.state.dockLock = true;
   setPrompt(s, 'B1 LANZAR · B2 TIENDA');
 }
 
@@ -2045,24 +2053,11 @@ function startMusic(s) {
   a.music = true;
   a.mmode = 'trop';
   a.mstep = 0;
-  a.mint = 190;
+  a.mint = 175;
   try {
     const ctx = a.ctx;
-    const pf = ctx.createBiquadFilter();
-    pf.type = 'lowpass'; pf.frequency.value = 720; pf.Q.value = 0.8;
-    const pg = ctx.createGain(); pg.gain.value = 0.06;
-    pf.connect(pg); pg.connect(a.mus);
-    for (const d of [-6, 6]) {
-      const o = ctx.createOscillator();
-      o.type = SW; o.frequency.value = 165; o.detune.value = d;
-      o.connect(pf); o.start();
-    }
-    const perc = [1, 0, 0, 1, 0, 1, 0, 1];
-    const bass = [131, 0, 0, 131, 98, 0, 110, 0];
-    const mel = [392, 440, 0, 523, 0, 440, 494, 392];
-    const harm = [0, 0, 587, 0, 659, 0, 0, 587];
-    const tBass = [49, 0, 49, 0, 41, 0, 49, 0];
-    const tMel = [0, 233, 0, 261, 0, 0, 311, 0];
+    const mel = [392, 494, 587, 659, 587, 494, 440, 392, 440, 523, 659, 784, 659, 587, 494, 440];
+    const hot = [523, 659, 587, 698, 659, 784, 698, 587, 659, 784, 880, 784, 698, 659, 587, 698];
     const mk = (type, f0, f1, dur, vol) => {
       const o = ctx.createOscillator(), g = ctx.createGain();
       o.type = type;
@@ -2074,14 +2069,12 @@ function startMusic(s) {
       o.start(); o.stop(ctx.currentTime + dur + 0.02);
     };
     const step = () => {
-      const i = a.mstep % 8;
-      const tense = a.mmode === 'tense';
-      const bn = tense ? tBass[i] : bass[i];
-      if (bn) mk(SI, bn, bn, 0.32, 0.24);
-      if (perc[i]) mk('square', 1900, 500, 0.05, 0.09);
-      const mn = tense ? tMel[i] : mel[i];
-      if (mn) mk(TL, mn, mn, 0.26, 0.16);
-      if (!tense && harm[i]) mk(TL, harm[i], harm[i], 0.3, 0.08);
+      const i = a.mstep % 16, tense = a.mmode !== 'trop', mn = (tense ? hot : mel)[i];
+      a.mint = a.mmode === 'boss' ? 92 : tense ? 118 : 175;
+      mk(TL, mn, mn, tense ? 0.1 : 0.15, tense ? 0.11 : 0.09);
+      if (!(i % 4)) mk(SI, mn * 1.25, mn * 1.25, 0.13, 0.045);
+      if (!(i % 2)) mk(SQ, 2400, 1300, 0.025, 0.018);
+      if (i === 0 || i === 6 || i === 10) mk(SI, 180, 95, 0.07, 0.06);
       a.mstep++;
       s.time.delayedCall(a.mint, step);
     };
