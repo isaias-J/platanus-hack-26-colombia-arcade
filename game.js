@@ -820,8 +820,8 @@ function spawnFish(s) {
   const x = dir > 0 ? -40 : W + 40;
   const tc = tintOf(pick[3]);
   const sc = pick[4];
-  const body = s.add.image(0, 0, 'fishT').setFlipX(dir < 0).setTint(tc).setScale(sc);
-  const eye = s.add.image(-13 * sc * (dir < 0 ? -1 : 1), -3 * sc, 'fishEye').setScale(sc);
+  const body = s.add.image(0, 0, 'fishT').setTint(tc).setScale(sc);
+  const eye = s.add.image(-13 * sc, -3 * sc, 'fishEye').setScale(sc);
   const c = s.add.container(x, y, [body, eye]).setDepth(4);
   const leg = pick[2] >= 300;
   const shiny = Math.random() < 0.14 + st.up.l * 0.05;
@@ -834,14 +834,21 @@ function spawnFish(s) {
   ]).setDepth(3) : null;
   const fval = shiny ? Math.round(pick[2] * 1.8 + 55) : pick[2];
   const fish = {
-    c, body, glow, d: fd, sp: pick[5] * (shiny ? 2.4 : 1), dir, val: fval, name: shiny ? pick[0] + ' ✦' : pick[0], tint: tc,
+    c, body, eye, glow, d: fd, sp: pick[5] * (shiny ? 2.4 : 1), dir, val: fval, name: shiny ? pick[0] + ' ✦' : pick[0], tint: tc,
     r: 13 * sc + 6, seed: Math.random() * 10, frozen: false, leg, shiny,
   };
+  faceFish(fish, dir);
   if (glow) {
     s.tweens.add({ targets: glow, alpha: { from: 0.12, to: 0.4 }, duration: 560, yoyo: true, repeat: -1 });
     s.tweens.add({ targets: glow, scale: { from: 0.92, to: 1.08 }, duration: 760, yoyo: true, repeat: -1, ease: SB });
   }
   st.fish.push(fish);
+}
+
+function faceFish(f, dir) {
+  f.dir = dir;
+  f.body.setFlipX(dir > 0);
+  if (f.eye) f.eye.setX(-13 * f.body.scaleX * (dir > 0 ? -1 : 1));
 }
 
 function updateFishes(s, dt) {
@@ -910,7 +917,7 @@ function spawnEel(s) {
   const left = Math.random() < 0.5;
   const d = C(st.hook.depth + B(-45, 45), 500, 810);
   const glow = s.add.ellipse(0, 0, 86, 24, 0x7fffd4, 0.2);
-  const body = s.add.image(0, 0, 'fishT').setScale(1.7, 0.55).setTint(0x7fffd4).setFlipX(!left);
+  const body = s.add.image(0, 0, 'fishT').setScale(1.7, 0.55).setTint(0x7fffd4).setFlipX(left);
   const c = s.add.container(left ? 54 : W - 54, depthY(d), [glow, body]).setDepth(5).setAlpha(0.25);
   st.eels.push({ c, d, dir: left ? 1 : -1, t: 0.75, dash: false });
   sfx(s, 'eel');
@@ -1164,7 +1171,7 @@ function sinkUpdate(s, dt) {
     if (hookPress) {
       if (ready) { s.hookHint.setVisible(false); startBite(s, hit); return; }
       f.sp *= 1.7;
-      f.dir = f.c.x < hook.x ? -1 : 1;
+      faceFish(f, f.c.x < hook.x ? -1 : 1);
       popText(s, hook.x, hook.y - 25, '¡FALLASTE!', PAL.r, 15);
       sfx(s, 'fail');
     }
